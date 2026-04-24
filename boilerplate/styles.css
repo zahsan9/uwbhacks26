@@ -1,0 +1,232 @@
+/* VitaQuest — muted editorial palette on seashell, pixel-art UI */
+
+:root {
+  /* Base palette */
+  --vq-seashell: #EAE4DA;
+  --vq-seashell-deep: #ded6c6;
+  --vq-seashell-soft: #f4efe6;
+  --vq-ink: #1D1D1B;
+  --vq-ink-soft: #4a4a46;
+  --vq-ink-dim: #8a8880;
+
+  --vq-lavender: #808BC5;
+  --vq-lavender-soft: #c9cee4;
+  --vq-tea: #245E55;
+  --vq-tea-soft: #8eb2aa;
+  --vq-pink: #EAA7C7;
+  --vq-pink-soft: #f5d4e3;
+  --vq-mustard: #EAC119;
+  --vq-mustard-soft: #f5dd7e;
+  --vq-tangerine: #ED773C;
+  --vq-tangerine-soft: #f4b494;
+  --vq-sky: #9ED6DF;
+  --vq-sky-soft: #d3ebef;
+  --vq-red: #C63F3E;
+  --vq-red-soft: #e79b9a;
+
+  /* State mapping */
+  --vq-thriving: var(--vq-tea);
+  --vq-thriving-soft: var(--vq-tea-soft);
+  --vq-healthy: var(--vq-lavender);
+  --vq-healthy-soft: var(--vq-lavender-soft);
+  --vq-sick: var(--vq-tangerine);
+  --vq-sick-soft: var(--vq-tangerine-soft);
+  --vq-critical: var(--vq-red);
+  --vq-critical-soft: var(--vq-red-soft);
+
+  /* Legacy aliases */
+  --vq-coral: var(--vq-tangerine);
+  --vq-coral-deep: #c85b22;
+  --vq-hibiscus: var(--vq-pink);
+  --vq-mango: var(--vq-mustard);
+  --vq-sand-light: #f5e9d0;
+  --vq-sand: var(--vq-seashell-deep);
+  --vq-sand-dark: #b6a584;
+  --vq-leaf-bright: var(--vq-tea-soft);
+  --vq-leaf: var(--vq-tea);
+  --vq-leaf-dark: #143a33;
+  --vq-trunk: #8a6a4a;
+  --vq-trunk-dark: #4a3220;
+
+  /* Surfaces */
+  --vq-surface: #ffffff;
+  --vq-surface-soft: var(--vq-seashell-soft);
+  --vq-surface-alt: #f4efe6;
+  --vq-border: rgba(29,29,27,0.10);
+  --vq-border-soft: rgba(29,29,27,0.07);
+  --vq-border-strong: rgba(29,29,27,0.18);
+
+  --vq-water-0: var(--vq-sky-soft);
+  --vq-water-1: var(--vq-sky);
+  --vq-water-2: #6ac0cb;
+  --vq-water-3: #3d8c96;
+  --vq-water-deep: #255d65;
+}
+
+* { box-sizing: border-box; }
+
+/* Pixelify Sans throughout — pixel-game UI feel */
+.vq {
+  font-family: 'Pixelify Sans', system-ui, sans-serif;
+  color: var(--vq-ink);
+  -webkit-font-smoothing: none;
+}
+
+.vq-h1 { font-family: 'Pixelify Sans', system-ui, sans-serif; font-weight: 600; font-size: 28px; line-height: 1.15; letter-spacing: 0.5px; color: var(--vq-ink); }
+.vq-h2 { font-family: 'Pixelify Sans', system-ui, sans-serif; font-weight: 600; font-size: 20px; line-height: 1.2; letter-spacing: 0.3px; color: var(--vq-ink); }
+.vq-h3 { font-family: 'Pixelify Sans', system-ui, sans-serif; font-weight: 500; font-size: 14px; line-height: 1.3; color: var(--vq-ink); letter-spacing: 0.2px; }
+.vq-body { font-family: 'Pixelify Sans', system-ui, sans-serif; font-weight: 400; font-size: 13px; line-height: 1.5; color: var(--vq-ink-soft); }
+.vq-small { font-family: 'Pixelify Sans', system-ui, sans-serif; font-weight: 400; font-size: 11px; line-height: 1.4; color: var(--vq-ink-dim); }
+.vq-eyebrow { font-family: 'Pixelify Sans', system-ui, sans-serif; font-weight: 600; font-size: 9px; line-height: 1; letter-spacing: 2px; text-transform: uppercase; color: var(--vq-ink-dim); }
+.vq-streak-num { font-family: 'VT323', monospace; font-size: 24px; line-height: 1; color: var(--vq-tangerine); }
+
+/* Seashell background with soft horizon gradient */
+.vq-water-bg {
+  position: absolute;
+  inset: 0;
+  background:
+    radial-gradient(ellipse 120% 50% at 50% 110%, var(--vq-sky-soft) 0%, transparent 55%),
+    radial-gradient(ellipse 100% 40% at 50% -20%, var(--vq-seashell-soft) 0%, transparent 60%),
+    var(--vq-seashell);
+}
+
+.vq-waves { position: absolute; inset: 0; pointer-events: none; overflow: hidden; }
+.vq-waves svg { position: absolute; left: -50%; width: 200%; height: 100%; }
+@keyframes vq-drift-a { 0% { transform: translateX(0) } 100% { transform: translateX(120px) } }
+@keyframes vq-drift-b { 0% { transform: translateX(0) } 100% { transform: translateX(-100px) } }
+.vq-shimmer { display: none; }
+
+@keyframes vq-bob      { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-5px); } }
+@keyframes vq-bob-slow { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-3px); } }
+@keyframes vq-bob-fast { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-6px); } }
+@keyframes vq-twinkle  { 0%, 100% { opacity: 1 } 50% { opacity: 0.3 } }
+
+/* ─── Pixel buttons — square with offset shadow press ─── */
+.vq-btn {
+  font-family: 'Pixelify Sans', system-ui, sans-serif;
+  font-weight: 600;
+  font-size: 14px;
+  letter-spacing: 0.5px;
+  padding: 13px 22px;
+  background: var(--vq-ink);
+  color: var(--vq-seashell);
+  border: 2px solid var(--vq-ink);
+  border-radius: 4px;
+  cursor: pointer;
+  transition: transform 0.06s, box-shadow 0.06s;
+  box-shadow: 3px 3px 0 rgba(29,29,27,0.55);
+}
+.vq-btn:active {
+  transform: translate(3px, 3px);
+  box-shadow: none;
+}
+.vq-btn.primary {
+  background: var(--vq-tangerine);
+  color: #fff;
+  border-color: #c85b22;
+  box-shadow: 3px 3px 0 #c85b22;
+}
+.vq-btn.primary:active { box-shadow: none; }
+.vq-btn.water {
+  background: var(--vq-tea);
+  color: var(--vq-seashell);
+  border-color: #143a33;
+  box-shadow: 3px 3px 0 #143a33;
+}
+.vq-btn.water:active { box-shadow: none; }
+.vq-btn.ghost {
+  background: transparent;
+  color: var(--vq-ink);
+  border: 2px solid var(--vq-ink);
+  box-shadow: 3px 3px 0 rgba(29,29,27,0.25);
+}
+.vq-btn.ghost:active { box-shadow: none; }
+.vq-btn.oauth-google {
+  background: #fff;
+  color: var(--vq-ink);
+  border: 2px solid var(--vq-border-strong);
+  box-shadow: 3px 3px 0 rgba(29,29,27,0.15);
+}
+.vq-btn.oauth-apple {
+  background: var(--vq-ink);
+  color: #fff;
+  border-color: var(--vq-ink);
+  box-shadow: 3px 3px 0 rgba(0,0,0,0.5);
+}
+
+/* ─── Cards — square-ish, clear pixel border ─── */
+.vq-card {
+  background: var(--vq-surface);
+  border-radius: 6px;
+  padding: 14px 16px;
+  border: 1.5px solid var(--vq-border);
+}
+.vq-card.soft { background: var(--vq-sky-soft); border-color: transparent; }
+.vq-card.warm { background: var(--vq-seashell-soft); border-color: var(--vq-border); }
+.vq-card.flat { background: transparent; border: 2px solid var(--vq-border-strong); }
+
+/* ─── Chip — square pixel badge ─── */
+.vq-chip {
+  display: inline-flex; align-items: center; gap: 5px;
+  padding: 3px 8px 3px 6px;
+  border-radius: 3px;
+  font-family: 'Pixelify Sans', system-ui, sans-serif;
+  font-weight: 600;
+  font-size: 9px;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  background: transparent;
+  border: 1.5px solid var(--vq-border-strong);
+  color: var(--vq-ink);
+}
+.vq-chip::before {
+  content: ''; width: 5px; height: 5px; border-radius: 1px;
+  background: var(--vq-ink-dim);
+}
+.vq-chip.thriving { color: var(--vq-tea); border-color: var(--vq-tea-soft); }
+.vq-chip.thriving::before { background: var(--vq-tea); }
+.vq-chip.healthy { color: var(--vq-lavender); border-color: var(--vq-lavender-soft); }
+.vq-chip.healthy::before { background: var(--vq-lavender); }
+.vq-chip.sick { color: var(--vq-tangerine); border-color: var(--vq-tangerine-soft); }
+.vq-chip.sick::before { background: var(--vq-tangerine); }
+.vq-chip.critical { color: var(--vq-red); border-color: var(--vq-red-soft); }
+.vq-chip.critical::before { background: var(--vq-red); }
+
+/* Pixel crispness for sprites */
+.vq-pixel {
+  image-rendering: pixelated;
+  image-rendering: -moz-crisp-edges;
+  image-rendering: crisp-edges;
+}
+
+/* Weekly dashes — square pixel ticks */
+.vq-dashes { display: flex; gap: 3px; }
+.vq-dash { flex: 1; height: 4px; border-radius: 0; background: var(--vq-border-strong); }
+.vq-dash.on      { background: var(--vq-tea); }
+.vq-dash.partial { background: var(--vq-mustard); }
+.vq-dash.miss    { background: var(--vq-red); opacity: 0.7; }
+
+.vq-screen::-webkit-scrollbar { display: none; }
+.vq-screen { scrollbar-width: none; }
+
+/* Speech bubble — square pixel border */
+.vq-bubble {
+  position: relative;
+  background: var(--vq-surface);
+  padding: 12px 16px;
+  border-radius: 5px;
+  border: 2px solid var(--vq-border-strong);
+}
+.vq-bubble::after {
+  content: '';
+  position: absolute;
+  bottom: -7px; left: 28px;
+  width: 10px; height: 10px;
+  background: var(--vq-surface);
+  border-right: 2px solid var(--vq-border-strong);
+  border-bottom: 2px solid var(--vq-border-strong);
+  transform: rotate(45deg);
+}
+
+/* Rule */
+.vq-rule { height: 1px; background: var(--vq-border); margin: 0; }

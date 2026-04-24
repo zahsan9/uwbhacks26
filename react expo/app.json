@@ -1,0 +1,11 @@
+{
+  "expo": {
+    "name": "VitaQuest",
+    "slug": "vitaquest",
+    "version": "1.0.0",
+    "scheme": "vitaquest",
+    "platforms": ["ios", "android"],
+    "plugins": ["expo-router"],
+    "ios": { "supportsTablet": false }
+  }
+}
