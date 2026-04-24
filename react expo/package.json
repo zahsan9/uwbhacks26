@@ -1,0 +1,33 @@
+{
+  "name": "vitaquest",
+  "version": "1.0.0",
+  "main": "expo-router/entry",
+  "scripts": {
+    "start": "expo start",
+    "ios": "expo start --ios",
+    "android": "expo start --android"
+  },
+  "dependencies": {
+    "@expo-google-fonts/pixelify-sans": "^0.4.2",
+    "@expo-google-fonts/vt323": "^0.4.1",
+    "@react-native-async-storage/async-storage": "2.2.0",
+    "expo": "~55.0.0",
+    "expo-font": "~55.0.6",
+    "expo-image": "~2.3.0",
+    "expo-linear-gradient": "~55.0.13",
+    "expo-linking": "~7.1.5",
+    "expo-router": "~55.0.13",
+    "expo-status-bar": "~55.0.5",
+    "react": "19.2.0",
+    "react-native": "0.83.6",
+    "react-native-safe-area-context": "~5.6.2",
+    "react-native-screens": "~4.23.0",
+    "react-native-svg": "15.15.3"
+  },
+  "devDependencies": {
+    "@babel/core": "^7.24.0",
+    "@types/react": "^19.0.0",
+    "babel-preset-expo": "~55.0.0",
+    "typescript": "^5.3.0"
+  }
+}
