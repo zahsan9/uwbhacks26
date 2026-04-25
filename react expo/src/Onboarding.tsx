@@ -30,7 +30,7 @@ import { AvatarState, VQ } from "./theme";
 WebBrowser.maybeCompleteAuthSession();
 
 // ─── Signup ──────────────────────────────────────────────────────────
-function SignupScreen({ onNext }: { onNext: () => void }) {
+function SignupScreen({ onNext, onDone }: { onNext: () => void; onDone: () => void }) {
   const [loading, setLoading] = useState(false);
 
   const handleGoogleSignIn = async () => {
@@ -94,6 +94,17 @@ function SignupScreen({ onNext }: { onNext: () => void }) {
             avatar_id: 1,
             total_xp: 0,
           });
+        }
+
+        // Returning user who already has habits — skip onboarding entirely
+        const { data: habits } = await supabase
+          .from("habits")
+          .select("id")
+          .eq("user_id", session.user.id)
+          .limit(1);
+        if (habits && habits.length > 0) {
+          onDone();
+          return;
         }
       }
 
@@ -303,19 +314,119 @@ function AvatarScreen({ onNext }: { onNext: () => void }) {
     </WorldBg>
   );
 }
-
 // ─── Habit picker ────────────────────────────────────────────────────
+
+// Maps onboarding habit IDs → backend prototype keys (must match vitaquest-backend/prototypes/*.npy)
+const HABIT_ID_KEY_MAP: Record<string, string> = {
+  sleep: 'sleep',
+  steps: 'walk',
+  screen: 'screen',
+  gym: 'gym',
+  running: 'running',
+  read: 'reading',
+  cooking: 'cooking',
+  meditate: 'meditation',
+};
+
+// Human-readable names for the habits table
+const HABIT_NAME_MAP: Record<string, string> = {
+  sleep: 'Sleep',
+  steps: 'Walking',
+  screen: 'Screen Time',
+  gym: 'Workout',
+  running: 'Running',
+  read: 'Reading',
+  cooking: 'Cooking',
+  meditate: 'Meditation',
+};
+
 function HabitsScreen({ onDone }: { onDone: () => void }) {
   const [sel, setSel] = useState<Set<string>>(
-    new Set(["sleep", "steps", "screen"]),
+    new Set(['sleep', 'steps', 'screen']),
   );
+  const [loading, setLoading] = useState(false);
+
   const toggle = (id: string) => {
+    // sleep and steps are locked — always selected
+    if (id === 'sleep' || id === 'steps') return;
     setSel((prev) => {
       const next = new Set(prev);
       next.has(id) ? next.delete(id) : next.add(id);
       return next;
     });
   };
+
+  const handleBeginQuest = async () => {
+    setLoading(true);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session?.user) {
+        Alert.alert('Not signed in', 'Please sign in first.');
+        return;
+      }
+      const userId = session.user.id;
+
+      // Build rows to insert.
+      // Always include sleep + steps as HealthKit habits regardless of selection.
+      const habitRows: {
+        user_id: string;
+        name: string;
+        habit_id_key: string;
+        is_healthkit: boolean;
+        healthkit_type: string | null;
+        tier: number;
+      }[] = [
+          {
+            user_id: userId,
+            name: 'Walking',
+            habit_id_key: 'walk',
+            is_healthkit: true,
+            healthkit_type: 'steps',
+            tier: 1,
+          },
+          {
+            user_id: userId,
+            name: 'Sleep',
+            habit_id_key: 'sleep',
+            is_healthkit: true,
+            healthkit_type: 'sleep',
+            tier: 1,
+          },
+        ];
+
+      // Add photo habits the user selected (skip sleep/steps — already added above)
+      for (const id of sel) {
+        if (id === 'sleep' || id === 'steps') continue;
+        habitRows.push({
+          user_id: userId,
+          name: HABIT_NAME_MAP[id] ?? id,
+          habit_id_key: HABIT_ID_KEY_MAP[id] ?? id,
+          is_healthkit: false,
+          healthkit_type: null,
+          tier: 1,
+        });
+      }
+
+      // Delete any existing habits for this user first (idempotent re-run)
+      await supabase.from('habits').delete().eq('user_id', userId);
+
+      const { error } = await supabase.from('habits').insert(habitRows);
+      if (error) {
+        console.warn('[HabitsScreen] habits insert error:', error.message);
+        Alert.alert('Error', 'Failed to save habits. Please try again.');
+        return;
+      }
+
+      console.log('[HabitsScreen] seeded', habitRows.length, 'habits for user', userId);
+      onDone();
+    } catch (err) {
+      console.warn('[HabitsScreen] unexpected error:', err);
+      Alert.alert('Error', String(err));
+    } finally {
+      setLoading(false);
+    }
+  };
+
   return (
     <WorldBg>
       <ScrollView contentContainerStyle={{ padding: 28, paddingTop: 76 }}>
@@ -326,33 +437,35 @@ function HabitsScreen({ onDone }: { onDone: () => void }) {
         </Body>
         {STARTER_HABITS.map((h) => {
           const on = sel.has(h.id);
+          const locked = h.id === 'sleep' || h.id === 'steps';
           return (
             <Pressable
               key={h.id}
               onPress={() => toggle(h.id)}
               style={{
-                flexDirection: "row",
-                alignItems: "center",
+                flexDirection: 'row',
+                alignItems: 'center',
                 gap: 14,
                 paddingVertical: 14,
                 borderBottomWidth: 1,
                 borderBottomColor: VQ.border,
+                opacity: locked ? 0.6 : 1,
               }}
             >
               <View style={{ flex: 1, gap: 2 }}>
                 <H3 style={{ color: on ? VQ.ink : VQ.inkSoft }}>{h.label}</H3>
-                <Small>{h.hint}</Small>
+                <Small>{locked ? 'Auto · always on' : h.hint}</Small>
               </View>
               <View
                 style={{
                   width: 20,
                   height: 20,
                   borderRadius: 3,
-                  backgroundColor: on ? VQ.ink : "transparent",
+                  backgroundColor: on ? VQ.ink : 'transparent',
                   borderWidth: 2,
                   borderColor: on ? VQ.ink : VQ.borderStrong,
-                  alignItems: "center",
-                  justifyContent: "center",
+                  alignItems: 'center',
+                  justifyContent: 'center',
                 }}
               >
                 {on && (
@@ -360,7 +473,7 @@ function HabitsScreen({ onDone }: { onDone: () => void }) {
                     style={{
                       color: VQ.seashell,
                       fontSize: 11,
-                      fontWeight: "bold",
+                      fontWeight: 'bold',
                     }}
                   >
                     ✓
@@ -371,7 +484,10 @@ function HabitsScreen({ onDone }: { onDone: () => void }) {
           );
         })}
         <View style={{ height: 28 }} />
-        <VQButton label={`Begin quest · ${sel.size}`} onPress={onDone} />
+        <VQButton
+          label={loading ? 'Saving…' : `Begin quest · ${sel.size}`}
+          onPress={handleBeginQuest}
+        />
       </ScrollView>
     </WorldBg>
   );
@@ -381,7 +497,7 @@ function HabitsScreen({ onDone }: { onDone: () => void }) {
 export default function OnboardingView({ onDone }: { onDone: () => void }) {
   const [step, setStep] = useState(0);
   const next = () => setStep((s) => s + 1);
-  if (step === 0) return <SignupScreen onNext={next} />;
+  if (step === 0) return <SignupScreen onNext={next} onDone={onDone} />;
   if (step === 1) return <HealthScreen onNext={next} />;
   if (step === 2) return <AvatarScreen onNext={next} />;
   return <HabitsScreen onDone={onDone} />;

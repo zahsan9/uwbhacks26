@@ -28,15 +28,17 @@ export default function RootLayout() {
 
   useEffect(() => {
     async function checkSession() {
-      // Check Supabase session first — if valid, skip onboarding regardless of the flag
-      const {
-        data: { session },
-      } = await supabase.auth.getSession();
+      const { data: { session } } = await supabase.auth.getSession();
       if (session) {
-        setOnboarded(true);
+        // Only skip onboarding if the user has habits seeded — otherwise show onboarding
+        const { data: habits } = await supabase
+          .from("habits")
+          .select("id")
+          .eq("user_id", session.user.id)
+          .limit(1);
+        setOnboarded(habits != null && habits.length > 0);
         return;
       }
-      // Fall back to the local flag for users who completed onboarding without OAuth
       const val = await AsyncStorage.getItem("onboarded");
       setOnboarded(val === "true");
     }
@@ -46,9 +48,11 @@ export default function RootLayout() {
   // Keep session state in sync with Supabase auth events
   useEffect(() => {
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      (event, session) => {
+      (event) => {
+        // SIGNED_IN is intentionally not handled here — SignupScreen routes to
+        // onNext() or onDone() based on whether habits exist, and checkSession
+        // covers returning users on app launch.
         if (event === "SIGNED_OUT") setOnboarded(false);
-        if (event === "SIGNED_IN" && session) setOnboarded(true);
       }
     );
     return () => subscription.unsubscribe();

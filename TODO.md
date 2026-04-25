@@ -47,53 +47,33 @@ All 5 habits confirmed present in `HABIT_DISPLAY_NAME`. IP must be updated on de
 
 ---
 
-### 5. Save habit log after photo verification
+### 5. ~~Save habit log after photo verification~~ ✅ DONE
 
-`verify.tsx` `onComplete` currently just calls `console.log`. The photo verification works end-to-end but nothing gets written. This is the most critical feature gap.
+`verify.tsx` now has a real `handleComplete` that:
+- Gets the current user from Supabase session
+- Looks up the user's `habits` rows and matches `detected_habit` to `habit_id_key`
+- Inserts into `habit_logs`: `{ habit_id, user_id, verified_by: 'photo'|'manual', confidence, xp_awarded: 50|25 }`
+- Reads + updates `users.total_xp`
+- Navigates to the home tab via `router.replace('/(tabs)')`
+- `PhotoVerifyScreen` now accepts `habitIds` prop and passes it into `useHabitIdentification`
+- Camera FAB in `index.tsx` passes active photo habit keys as route param `habitIds`
 
-- [ ] Open `react expo/app/verify.tsx`
-- [ ] Replace the `onComplete` stub with a real handler:
-  - Get the current user ID from Supabase session
-  - Look up the user's active habits from the `habits` table
-  - Match the `detected_habit` ID returned from the backend to the user's habit rows
-  - Insert a row into `habit_logs`: `{ habit_id, user_id, verified_by: 'photo', confidence: Math.round(confidence * 100), xp_awarded: 50 }`
-  - If verified is null (ambiguous and user confirmed manually): set `verified_by: 'manual'` and `xp_awarded: 25`
-  - After insert, update `users.total_xp` by adding the awarded XP (use a Supabase RPC or read-then-write)
-- [ ] Navigate to home tab after saving, not just `router.back()`
-- [ ] Pass the detected habit name through to the route so `PhotoVerifyScreen` can use the user's actual active habits list when calling `identify()` — currently `identify()` is called without `habitIds` so it scans all 5 prototypes; it should only scan the habits the user has set up
+- [x] Open `react expo/app/verify.tsx`
+- [x] Replace the `onComplete` stub with a real handler
+- [x] Navigate to home tab after saving
+- [x] Pass the detected habit name through to the route so `PhotoVerifyScreen` can use the user's actual active habits list when calling `identify()` — `habitIds` passed as route param from index.tsx
 
 ---
 
-### 6. Wire home screen to real data
+### 6. ~~Wire home screen to real data~~ ✅ DONE
 
-The home screen shows hardcoded "Hi, Zainab", Day 12, 78/100, streak 12. None of it is real.
-
-- [ ] Create `react expo/lib/scoreEngine.ts` implementing the score logic from the PRD:
-  ```typescript
-  // Get logs for one habit for the last 3 days
-  async function getHabitScore(habitId: string, userId: string): Promise<number>
-  // Average across all user habits
-  async function getCompositeScore(userId: string): Promise<number>
-  // Map score to avatar state
-  function getAvatarState(score: number): AvatarState
-  ```
-  - Query `habit_logs` for logs in the last 3 days grouped by habit
-  - Walking and sleep habits: check for a log that day (HealthKit will insert these)
-  - Photo habits: check `habit_logs` with `verified_by` in ('photo', 'manual')
-- [ ] Open `react expo/app/(tabs)/index.tsx`
-- [ ] On mount, fetch from Supabase:
-  - `users` row for the current user (username, total_xp, avatar_id)
-  - User's active habits from `habits` table
-  - Call `getCompositeScore()` to get the real health score
-  - Call `getAvatarState()` to get the correct blob state
-  - Calculate streak: count consecutive days where at least one habit was logged
-- [ ] Replace hardcoded `AVATAR_STATE = 'healthy'` with computed state
-- [ ] Replace hardcoded "Hi, Zainab" with real username
-- [ ] Replace hardcoded "Day 12" with days since account creation
-- [ ] Replace hardcoded "78/100" with computed composite score
-- [ ] Replace hardcoded streak "12 🔥" with computed streak
-- [ ] Replace hardcoded "Lv 4 / 320 of 440 xp" with computed values from `total_xp` using `getLevel()` and `getLevelProgress()` from PRD
-- [ ] Replace `sampleHabits` import with real habits fetched from Supabase — each with their computed state from `getHabitScore()`
+- Created `react expo/lib/scoreEngine.ts`: `getHabitScore`, `getCompositeScore`, `getAvatarState`, `getHabitStreak`, `getOverallStreak`, `getLevel`, `getLevelXpCurrent`, `getDaySince`
+- Home screen fetches `users` row (username, total_xp, created_at), all habits with per-habit scores/streaks, composite score, overall streak
+- Avatar state, health score, streak, level/XP, username, day count — all real
+- Habit list shows real habits with correct icons and computed states (not sampleHabits)
+- Camera FAB passes real photo habit keys to /verify
+- Profile screen also updated with real data (username, email, XP, streak, health)
+- Shows ActivityIndicator spinner while loading
 
 ---
 
@@ -124,16 +104,18 @@ Steps and sleep are the two auto-tracked habits. Without this, the walking islan
 
 ---
 
-### 8. Seed starter habits during onboarding
+### 8. ~~Seed starter habits during onboarding~~ ✅ DONE
 
-The habits screen in onboarding lets users pick habits but never saves them. The app has no idea what habits the user has.
+- "Begin quest" button now inserts all selected habits into the `habits` table
+- Walking + Sleep are always seeded as HealthKit habits (`is_healthkit: true`) and are locked (not toggleable)
+- `habit_id_key` values are correctly mapped to backend prototype names (`read` → `reading`, `meditate` → `meditation`, `steps` → `walk`)
+- Existing habits are deleted first (idempotent — safe to re-run through onboarding)
+- Button shows "Saving…" while inserting, shows an Alert on error
 
-- [ ] Open `react expo/src/Onboarding.tsx` — find the `HabitsScreen` "Begin quest" button handler
-- [ ] On press, for each selected habit:
-  - Insert a row into `habits` table with `{ user_id, name, habit_id_key, is_healthkit: false, tier: 1 }`
-  - Walking and sleep are always inserted as HealthKit habits regardless of selection
-- [ ] Walking and sleep should be pre-inserted and locked (PRD says "Auto-tracked" badge, locked) — don't allow deselecting them
-- [ ] After inserting habits, navigate to the main tabs
+- [x] Open `react expo/src/Onboarding.tsx`
+- [x] Insert habits rows for each selected habit
+- [x] Walking and sleep locked and always inserted as HealthKit habits
+- [x] After inserting habits, navigate to main tabs
 
 ---
 
