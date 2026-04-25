@@ -1,0 +1,4 @@
+node_modules/
+react expo/node_modules/
+react expo/.expo/
+*.xcuserstate
