@@ -1,6 +1,7 @@
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { ScrollView, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import Blob from '../src/Blob';
 import { BackButton, Eyebrow, H3, Small, StatePill, VQCard, WorldBg } from '../src/Components';
 import Island from '../src/Island';
 import { islandMeta, islandName } from '../src/models';
@@ -43,8 +44,13 @@ export default function IslandDetailScreen() {
         </View>
 
         {/* Island hero */}
-        <View style={{ alignItems: 'center', height: 180, justifyContent: 'center' }}>
-          <Island type={type} state={st} scale={4} />
+        <View style={{ alignItems: 'center', height: 200, justifyContent: 'center' }}>
+          <View style={{ alignItems: 'center' }}>
+            <View style={{ marginBottom: -58, zIndex: 1, transform: [{ translateX: 22 }] }}>
+              <Blob state={st} scale={5} />
+            </View>
+            <Island type={type} state={st} scale={4} />
+          </View>
         </View>
 
         {/* Sheet */}
