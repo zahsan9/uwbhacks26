@@ -2,7 +2,7 @@
 
 Model file confirmed present at `vitaquest-backend/models/mobileclip_image_quantized.onnx`.  
 Prototypes confirmed present: cooking, gym, meditation, reading, running.  
-Backend `/verify` endpoint is fully complete. CORS is missing — add it before demo.
+Backend `/verify` endpoint is fully complete. CORS is done.
 
 Items are ordered by demo-day priority. P0 must work. P1 makes it compelling. P2 is polish.
 
@@ -12,62 +12,38 @@ Items are ordered by demo-day priority. P0 must work. P1 makes it compelling. P2
 
 ---
 
-### 1. Add CORS middleware to backend
+### 1. ~~Add CORS middleware to backend~~ ✅ DONE
 
-The backend will reject requests from the Expo app on a phone because there is no CORS header. This is a one-liner but will silently kill all verification until fixed.
-
-- [ ] Open `vitaquest-backend/main.py`
-- [ ] Import `CORSMiddleware` from `fastapi.middleware.cors`
-- [ ] Add `app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])` immediately after `app = FastAPI(...)`
-- [ ] Restart server and confirm `/healthz` responds from phone browser
+- `CORSMiddleware` added to `vitaquest-backend/main.py` with `allow_origins=["*"]`
 
 ---
 
-### 2. Fix server IP in frontend config
+### 2. Fix server IP in frontend config — ⚠️ DEMO DAY ACTION REQUIRED
 
-`verifyConfig.ts` has a hardcoded IP (`192.168.12.195`) that is only valid on one specific network. Every demo attempt on a new network will silently fail and return ambiguous results.
+All 5 habits confirmed present in `HABIT_DISPLAY_NAME`. IP must be updated on demo day.
 
-- [ ] Open `react expo/src/constants/verifyConfig.ts`
-- [ ] Update `DEMO_SERVER_ENDPOINT` to match the IP printed by `start_demo.sh` on demo day
-- [ ] Add `running` to the `HABIT_DISPLAY_NAME` map in `useHabitVerification.ts` — it is already in the prototypes but missing from the display name lookup (currently only gym, running, reading, cooking, meditation — confirm all 5 are there)
-- [ ] Test the full round-trip: open camera, take a photo, confirm the result reaches the backend and comes back
+- [ ] Update `DEMO_SERVER_ENDPOINT` in `react expo/src/constants/verifyConfig.ts` to match IP printed by `start_demo.sh`
+- [ ] Test the full round-trip: open camera, take a photo, confirm result comes back
 
 ---
 
-### 3. Set up Supabase project and run schema
+### 3. ~~Set up Supabase project and run schema~~ ✅ DONE
 
-Nothing persists without this. Auth, habit logs, XP, streaks — all depend on Supabase being live.
-
-- [ ] Create a new Supabase project at supabase.com
-- [ ] Copy the project URL and anon key
-- [ ] Run the full SQL schema from the PRD in the Supabase SQL editor:
-  - `users` table (id, google_id, username, avatar_id, total_xp, created_at)
-  - `habits` table (id, user_id, name, description, tier, category, is_healthkit, healthkit_type, habit_id_key, created_at)
-  - `habit_logs` table (id, habit_id, user_id, completed_at, verified_by, confidence, xp_awarded)
-  - `friendships` table (id, requester_id, addressee_id, status, created_at, unique constraint)
-  - `nudges` table (id, sender_id, receiver_id, sent_at)
-- [ ] Enable Row Level Security on all tables
-- [ ] Add RLS policies: users can only read/write their own rows; friendships readable by both parties
-- [ ] Create `react expo/lib/supabase.ts` — initialize Supabase client with project URL and anon key using `@supabase/supabase-js`
-- [ ] Install `@supabase/supabase-js` — run `npm install @supabase/supabase-js` in `react expo/`
-- [ ] Confirm client connects by calling `supabase.from('users').select('count')` and checking no error
+- Supabase project live at `sfgkcrbasdqqoegbystu.supabase.co`
+- All tables created with RLS: `users`, `habits`, `habit_logs`, `friendships`, `nudges`
+- `react expo/lib/supabase.ts` created, credentials in `react expo/.env`
+- Connection verified (`users` table returns count with no error)
 
 ---
 
-### 4. Implement Google OAuth sign-in
+### 4. ~~Implement Google OAuth sign-in~~ ✅ DONE
 
-The onboarding buttons all advance the flow without doing anything. No real user exists. All downstream features (saving logs, loading data) need a real user ID.
-
-- [ ] Install `expo-auth-session` and `expo-crypto` — `npm install expo-auth-session expo-crypto`
-- [ ] Register the app in Google Cloud Console — create OAuth 2.0 credentials for iOS, get client ID
-- [ ] Enable Google provider in Supabase Auth dashboard — paste the Google client ID and secret
-- [ ] Open `react expo/src/Onboarding.tsx` — find the Google button handler in `SignupScreen`
-- [ ] Replace the stub with `supabase.auth.signInWithOAuth({ provider: 'google' })` using `expo-auth-session` as the redirect handler
-- [ ] On successful sign-in, check if a row exists in `users` table for this `google_id`
-- [ ] If no row: insert a new user with a generated username and default avatar_id 1
-- [ ] Store the Supabase session in AsyncStorage so it persists across app restarts
-- [ ] On app launch in `_layout.tsx`, call `supabase.auth.getSession()` — if a valid session exists, skip onboarding and go straight to tabs
-- [ ] Handle sign-out in `profile.tsx` — already calls `AsyncStorage.clear()`, add `supabase.auth.signOut()` before that
+- Google Web OAuth client created, client ID + secret in Supabase Auth → Providers → Google
+- `Onboarding.tsx` Google button triggers real OAuth via `WebBrowser.openAuthSessionAsync` (implicit flow)
+- New users auto-inserted into `users` table on first sign-in
+- Session persists via AsyncStorage; `_layout.tsx` skips onboarding if valid session exists
+- Logout in `profile.tsx` calls `supabase.auth.signOut()` + clears AsyncStorage
+- Use `npx expo start --tunnel` on demo day if phone and laptop are on different networks
 
 ---
 
