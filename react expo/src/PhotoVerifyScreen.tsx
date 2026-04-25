@@ -41,6 +41,7 @@ export default function PhotoVerifyScreen({ habitIds, onComplete }: PhotoVerifyS
     const [frozenUri, setFrozenUri] = useState<string | null>(null);
     const [confidence, setConfidence] = useState(0);
     const [detectedHabit, setDetectedHabit] = useState<string | null>(null);
+    const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
     // Animated values
     const dotScale = useRef(new Animated.Value(1)).current;
@@ -169,7 +170,12 @@ export default function PhotoVerifyScreen({ habitIds, onComplete }: PhotoVerifyS
         setConfidence(result.confidence);
         setDetectedHabit(result.detectedHabit);
 
-        if (result.verified === true) {
+        if (result.error) {
+            // Hard failure — network or server error, not a genuine unrecognised image
+            setErrorMsg(result.error);
+            setStage("failed");
+            animateShake();
+        } else if (result.verified === true) {
             setStage("verified");
             animateBadge();
         } else if (result.verified === null || result.timedOut) {
@@ -208,6 +214,7 @@ export default function PhotoVerifyScreen({ habitIds, onComplete }: PhotoVerifyS
         setFrozenUri(null);
         setConfidence(0);
         setDetectedHabit(null);
+        setErrorMsg(null);
         setStage("camera");
     };
 
@@ -372,7 +379,9 @@ export default function PhotoVerifyScreen({ habitIds, onComplete }: PhotoVerifyS
                 <Text style={styles.failIcon}>❌</Text>
                 <Text style={styles.failTitle}>Couldn't verify</Text>
                 <Text style={styles.failSub}>
-                    No habit was detected. Try again with the activity clearly in frame.
+                    {errorMsg
+                        ? `Server error: ${errorMsg}`
+                        : "No habit was detected. Try again with the activity clearly in frame."}
                 </Text>
                 <TouchableOpacity style={[styles.btn, styles.btnGray]} onPress={handleRetry}>
                     <Text style={styles.btnText}>Try Again</Text>

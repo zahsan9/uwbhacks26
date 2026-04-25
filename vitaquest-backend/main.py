@@ -25,11 +25,15 @@ PROTOTYPES_DIR = "prototypes"
 
 SUPPORTED_HABITS = ["gym", "running", "reading", "cooking", "meditation"]
 
-# Thresholds (calibrated from generate_prototypes.py similarity matrix)
-# Max inter-habit similarity observed: 0.844 (reading vs cooking)
-# Recommended verified threshold: 0.92 | ambiguous band: 0.67 – 0.92
-THRESHOLD_VERIFIED = 0.92
-THRESHOLD_NULL = 0.67
+# CLIP temperature — matches the model's trained logit_scale (exp(ln(100)) ≈ 100).
+# Scaling cosine similarities before softmax spreads the probability mass correctly.
+LOGIT_SCALE = 100.0
+
+# Probability thresholds after softmax over all habit scores.
+# Using softmax removes sensitivity to the absolute scale of cross-modal similarities
+# (image-to-text cosines sit at ~0.15–0.32, far below old raw thresholds of 0.92/0.67).
+PROB_VERIFIED = 0.70   # top class holds ≥70% of probability mass → verified
+PROB_NULL     = 0.40   # ambiguous band floor
 
 # Input image size expected by MobileCLIP
 INPUT_SIZE = 224
@@ -168,13 +172,13 @@ def cosine_similarities(embedding: np.ndarray, proto_matrix: np.ndarray) -> np.n
     return sims
 
 
-def similarity_to_verified(similarity: float) -> Optional[bool]:
-    """Map cosine similarity to verified / null / false."""
-    if similarity >= THRESHOLD_VERIFIED:
-        return True
-    if similarity >= THRESHOLD_NULL:
-        return None  # ambiguous
-    return False
+def softmax_probs(scores: dict[str, float]) -> dict[str, float]:
+    """Apply temperature-scaled softmax over per-habit cosine scores."""
+    logits = np.array(list(scores.values()), dtype=np.float64) * LOGIT_SCALE
+    logits -= logits.max()  # numerical stability
+    exp_logits = np.exp(logits)
+    probs = exp_logits / exp_logits.sum()
+    return dict(zip(scores.keys(), probs.tolist()))
 
 
 # ---------------------------------------------------------------------------
@@ -195,10 +199,10 @@ def verify(payload: VerifyRequest) -> VerifyResponse:
     and returns the best match.
 
     - Does NOT require knowing the habit in advance
-    - Returns detected_habit = whichever scored highest
-    - verified=true if best similarity >= THRESHOLD_VERIFIED
-    - verified=null if best similarity is in the ambiguous band
-    - verified=false (detected_habit=None) if nothing clears the floor
+    - Returns detected_habit = whichever scored highest after softmax
+    - verified=true  if top class probability >= PROB_VERIFIED (0.70)
+    - verified=null  if top class probability is in ambiguous band (0.40–0.70)
+    - verified=false if nothing clears the floor (detected_habit=None)
     """
     # --- Auth ---
     if payload.demo_token != DEMO_TOKEN:
@@ -228,26 +232,34 @@ def verify(payload: VerifyRequest) -> VerifyResponse:
     else:
         habits_to_scan = prototypes
 
-    # --- Score against selected habits only ---
-    best_habit: Optional[str] = None
-    best_sim: float = -1.0
-
+    # --- Score against selected habits (max sim across each habit's prototypes) ---
+    raw_scores: dict[str, float] = {}
     for habit_id, proto_matrix in habits_to_scan.items():
         sims = cosine_similarities(embedding, proto_matrix)
-        top_sim = float(np.max(sims))
-        if top_sim > best_sim:
-            best_sim = top_sim
-            best_habit = habit_id
+        raw_scores[habit_id] = float(np.max(sims))
 
-    verified = similarity_to_verified(best_sim)
+    # Softmax over temperature-scaled scores → proper class probabilities
+    prob_map = softmax_probs(raw_scores)
+    best_habit = max(prob_map, key=prob_map.get)
+    best_prob = prob_map[best_habit]
 
-    # If nothing cleared the floor threshold, don't report a habit
-    if verified is False:
+    print(
+        f"[verify] cosine={{{', '.join(f'{h}:{s:.4f}' for h, s in raw_scores.items())}}} "
+        f"prob={{{', '.join(f'{h}:{p:.3f}' for h, p in prob_map.items())}}} "
+        f"best={best_habit} p={best_prob:.3f}"
+    )
+
+    if best_prob >= PROB_VERIFIED:
+        verified: Optional[bool] = True
+    elif best_prob >= PROB_NULL:
+        verified = None
+    else:
+        verified = False
         best_habit = None
 
     return VerifyResponse(
         verified=verified,
         detected_habit=best_habit,
-        confidence=round(best_sim, 6),
+        confidence=round(best_prob, 6),
         inference_ms=inference_ms,
     )

@@ -11,6 +11,7 @@ export interface VerificationResult {
     confidence: number;
     inferenceMs: number;
     timedOut: boolean;
+    error?: string;  // set when a network/server error occurred (as opposed to genuine ambiguity)
 }
 
 // ---------------------------------------------------------------------------
@@ -19,7 +20,7 @@ export interface VerificationResult {
 
 const TIMEOUT_MS = 8000;
 const TARGET_SIZE = 224;
-const JPEG_QUALITY = 0.7;
+const JPEG_QUALITY = 0.92;  // was 0.7 — low quality introduced JPEG artifacts that corrupt the embedding
 
 // ---------------------------------------------------------------------------
 // Hook
@@ -114,13 +115,15 @@ export function useHabitVerification(habitIds?: string[]) {
             const frameBase64 = await resizeToBase64(photoUri);
             return await postVerify(frameBase64);
         } catch (error) {
-            console.warn("[useHabitVerification] Error during verification:", error);
+            const msg = error instanceof Error ? error.message : String(error);
+            console.warn("[useHabitVerification] Error during verification:", msg);
             return {
                 verified: null,
                 detectedHabit: null,
                 confidence: 0,
                 inferenceMs: 0,
                 timedOut: false,
+                error: msg,  // carry the real error up so the UI can show it
             };
         }
     }
