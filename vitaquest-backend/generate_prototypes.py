@@ -119,21 +119,26 @@ def main() -> None:
             embeddings.append(emb)
             print(f"  ✓ \"{prompt}\"")
 
-        # Average then re-normalise → single prototype vector
-        mean_emb = np.mean(np.stack(embeddings, axis=0), axis=0)  # (D,)
-        prototype = l2_normalize(mean_emb)
+        # Save all prompt embeddings as an (N, D) matrix.
+        # Keeping individual vectors preserves intra-class variation so that
+        # main.py's np.max(sims) can match against whichever prompt is closest
+        # to the incoming image, rather than a single averaged centroid.
+        proto_matrix = np.stack(embeddings, axis=0)  # (N, D)
 
         out_path = os.path.join(PROTOTYPES_DIR, f"{habit_id}.npy")
-        np.save(out_path, prototype)
-        prototypes[habit_id] = prototype
-        print(f"  → Saved to {out_path}  (shape: {prototype.shape})\n")
+        np.save(out_path, proto_matrix)
+        prototypes[habit_id] = proto_matrix
+        print(f"  → Saved to {out_path}  (shape: {proto_matrix.shape})\n")
 
     # -----------------------------------------------------------------------
-    # Inter-habit cosine similarity matrix
+    # Inter-habit cosine similarity matrix (using per-habit mean vector)
     # -----------------------------------------------------------------------
     habits = list(prototypes.keys())
+    # Compute mean vector per habit for display purposes only
+    mean_vecs = {h: l2_normalize(prototypes[h].mean(axis=0)) for h in habits}
+
     print("=" * 60)
-    print("Inter-habit cosine similarity matrix")
+    print("Inter-habit cosine similarity matrix (mean vectors)")
     print("=" * 60)
 
     # Header row
@@ -145,7 +150,7 @@ def main() -> None:
     for h1 in habits:
         row = f"{h1:<{col_w}}"
         for h2 in habits:
-            sim = cosine_similarity(prototypes[h1], prototypes[h2])
+            sim = cosine_similarity(mean_vecs[h1], mean_vecs[h2])
             sim_matrix[(h1, h2)] = sim
             row += f"{sim:>{col_w}.4f}"
         print(row)
@@ -163,29 +168,21 @@ def main() -> None:
     print(f"Off-diagonal  min={min_inter:.4f}  mean={mean_inter:.4f}  max={max_inter:.4f}")
 
     # -----------------------------------------------------------------------
-    # Threshold recommendation
+    # Notes on thresholds
     # -----------------------------------------------------------------------
-    # Rule of thumb: sit midway between the highest inter-habit similarity
-    # (worst-case confusion pair) and 1.0 (perfect self-match).
-    recommended = round((max_inter + 1.0) / 2, 2)
-
     print()
     print("=" * 60)
-    print("Threshold recommendation")
+    print("Threshold notes")
     print("=" * 60)
     print(
         f"  Highest inter-habit similarity : {max_inter:.4f}  "
-        f"(most confusable pair)"
-    )
-    print(f"  Recommended verified threshold : {recommended:.2f}")
-    print(
-        f"  Suggested ambiguous band       : "
-        f"{round(recommended - 0.25, 2):.2f} – {recommended:.2f}"
+        f"(most confusable pair, mean-vector basis)"
     )
     print()
     print(
-        "  Update THRESHOLD_VERIFIED and THRESHOLD_NULL in main.py "
-        "if these differ from defaults (0.65 / 0.40)."
+        "  main.py now uses softmax probabilities (LOGIT_SCALE=100) rather than\n"
+        "  raw cosine thresholds, so these values are for reference only.\n"
+        "  Tune PROB_VERIFIED / PROB_NULL in main.py against real test images."
     )
     print("=" * 60)
 
