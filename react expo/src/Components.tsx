@@ -3,6 +3,38 @@ import { Animated, Easing, Image, Pressable, ScrollView, StyleSheet, Text, View 
 import { LinearGradient } from 'expo-linear-gradient';
 import { AvatarState, VQ, stateColor, stateSoftColor } from './theme';
 
+export const UI = {
+  radius: {
+    card: 16,
+    control: 12,
+    pill: 20,
+    avatar: 55,
+  },
+  surface: {
+    base: 'rgba(10,26,14,0.86)',
+    raised: 'rgba(10,30,18,0.88)',
+    warm: 'rgba(18,40,22,0.90)',
+    cream: 'rgba(232,224,212,0.10)',
+    creamSoft: 'rgba(232,224,212,0.08)',
+  },
+  border: {
+    soft: 'rgba(214,211,198,0.14)',
+    base: 'rgba(214,211,198,0.22)',
+    strong: 'rgba(214,211,198,0.30)',
+    sky: 'rgba(158,214,223,0.22)',
+    skyStrong: 'rgba(158,214,223,0.30)',
+    care: 'rgba(235,130,120,0.28)',
+    careStrong: 'rgba(235,130,120,0.34)',
+    good: 'rgba(110,212,163,0.24)',
+    goodStrong: 'rgba(110,212,163,0.34)',
+  },
+  text: {
+    cream: '#E8E0D4',
+    muted: 'rgba(232,224,212,0.58)',
+    soft: 'rgba(232,224,212,0.48)',
+  },
+} as const;
+
 // ─── WorldBg ────────────────────────────────────────────────────────
 export function WorldBg({ children }: { children: React.ReactNode }) {
   return (
@@ -12,7 +44,6 @@ export function WorldBg({ children }: { children: React.ReactNode }) {
   );
 }
 
-// ─── WaterBg ─────────────────────────────────────────────────────────
 export function WaterBg({ children }: { children: React.ReactNode }) {
   return (
     <View style={{ flex: 1 }}>
@@ -46,7 +77,7 @@ export function VQButton({ label, style = 'primary', onPress }: { label: string;
   return (
     <Pressable onPress={onPress} onPressIn={onPressIn} onPressOut={onPressOut}>
       <Animated.View style={{
-        backgroundColor: btnBg[style], borderRadius: 16, borderWidth: 2,
+        backgroundColor: btnBg[style], borderRadius: UI.radius.card, borderWidth: 2,
         borderColor: btnBorder[style], paddingVertical: 13, paddingHorizontal: 22,
         alignItems: 'center',
         shadowColor: btnShadow[style], shadowOffset: { width: 3, height: 3 }, shadowOpacity: 1, shadowRadius: 0,
@@ -62,9 +93,9 @@ export function VQButton({ label, style = 'primary', onPress }: { label: string;
 export function VQCard({ children, warm, soft }: { children: React.ReactNode; warm?: boolean; soft?: boolean }) {
   return (
     <View style={{
-      backgroundColor: soft ? 'rgba(10,30,18,0.88)' : warm ? 'rgba(18,40,22,0.90)' : 'rgba(10,26,14,0.86)',
-      borderRadius: 16, padding: 14,
-      borderWidth: 1, borderColor: 'rgba(232,224,212,0.38)',
+      backgroundColor: soft ? UI.surface.raised : warm ? UI.surface.warm : UI.surface.base,
+      borderRadius: UI.radius.card, padding: 14,
+      borderWidth: 1, borderColor: UI.border.base,
     }}>
       {children}
     </View>
@@ -74,7 +105,7 @@ export function VQCard({ children, warm, soft }: { children: React.ReactNode; wa
 // ─── StatePill ────────────────────────────────────────────────────────
 export function StatePill({ state }: { state: AvatarState }) {
   return (
-    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 8, paddingVertical: 3, borderRadius: 3, borderWidth: 1.5, borderColor: stateSoftColor[state] }}>
+    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 8, paddingVertical: 3, borderRadius: UI.radius.pill, borderWidth: 1.5, borderColor: stateSoftColor[state] }}>
       <View style={{ width: 5, height: 5, borderRadius: 1, backgroundColor: stateColor[state] }} />
       <Text style={{ fontFamily: 'PixelifySans_600SemiBold', fontSize: 9, letterSpacing: 1, color: stateColor[state], textTransform: 'uppercase' }}>{state}</Text>
     </View>
@@ -123,10 +154,23 @@ export function StreakNum({ value }: { value: number }) {
   return <Text style={{ fontFamily: 'VT323_400Regular', fontSize: 24, color: '#E8E0D4', lineHeight: 26 }}>{value}</Text>;
 }
 
+// ─── SectionDivider ──────────────────────────────────────────────────
+export function SectionDivider({ label, style }: { label: string; style?: object }) {
+  return (
+    <View style={[{ marginTop: 26, marginBottom: 2, flexDirection: 'row', alignItems: 'center', gap: 10 }, style]}>
+      <View style={{ flex: 1, height: 1, backgroundColor: UI.border.sky }} />
+      <Text style={{ fontFamily: 'PixelifySans_600SemiBold', fontSize: 10, color: UI.text.muted, textTransform: 'uppercase', letterSpacing: 1.8 }}>
+        {label}
+      </Text>
+      <View style={{ flex: 1, height: 1, backgroundColor: UI.border.sky }} />
+    </View>
+  );
+}
+
 // ─── SpeechBubble ─────────────────────────────────────────────────────
 export function SpeechBubble({ children }: { children: React.ReactNode }) {
   return (
-    <View style={{ backgroundColor: 'rgba(10,26,14,0.88)', padding: 16, borderRadius: 16, borderWidth: 1, borderColor: 'rgba(232,224,212,0.14)' }}>
+    <View style={{ backgroundColor: UI.surface.base, padding: 16, borderRadius: UI.radius.card, borderWidth: 1, borderColor: UI.border.soft }}>
       {children}
     </View>
   );
@@ -136,7 +180,7 @@ export function SpeechBubble({ children }: { children: React.ReactNode }) {
 export function BackButton({ onPress }: { onPress: () => void }) {
   return (
     <Pressable onPress={onPress}>
-      <View style={{ width: 34, height: 34, backgroundColor: 'rgba(10,26,14,0.88)', borderRadius: 10, borderWidth: 1, borderColor: 'rgba(232,224,212,0.38)', alignItems: 'center', justifyContent: 'center' }}>
+      <View style={{ width: 34, height: 34, backgroundColor: UI.surface.base, borderRadius: UI.radius.control, borderWidth: 1, borderColor: UI.border.base, alignItems: 'center', justifyContent: 'center' }}>
         <Text style={{ fontSize: 16, color: '#E8E0D4' }}>‹</Text>
       </View>
     </Pressable>

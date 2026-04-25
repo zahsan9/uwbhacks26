@@ -45,7 +45,7 @@ export const stateSoftColor: Record<AvatarState, string> = {
 
 export const avatarMessage: Record<AvatarState, string> = {
   thriving: 'All my islands are thriving.',
-  healthy:  'Doing okay — volcano runs warm.',
+  healthy:  'Habitat stable — screen time needs care.',
   sick:     'My volcano needs help…',
   critical: "I don't feel so good.",
 };

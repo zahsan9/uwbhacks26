@@ -1,11 +1,34 @@
+import { Image } from 'expo-image';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { ScrollView, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Blob from '../src/Blob';
-import { BackButton, Eyebrow, H3, Small, StatePill, VQCard, WorldBg } from '../src/Components';
+import { BackButton, Eyebrow, H3, Small, StatePill, VQCard, WaterBg } from '../src/Components';
 import Island from '../src/Island';
 import { islandMeta, islandName } from '../src/models';
 import { AvatarState, IslandType, VQ } from '../src/theme';
+
+const MAP_ISLAND_IMG: Partial<Record<IslandType, any>> = {
+  walk: require('../assets/walk_island.png'),
+  sleep: require('../assets/sleep_island.png'),
+  screen: require('../assets/screen_island.png'),
+};
+
+function MapIslandArt({ type, state, scale }: { type: IslandType; state: AvatarState; scale: number }) {
+  const source = MAP_ISLAND_IMG[type];
+
+  if (!source) {
+    return <Island type={type} state={state} scale={scale} />;
+  }
+
+  return (
+    <Image
+      source={source}
+      style={{ width: 52 * scale, height: 32 * scale }}
+      contentFit="contain"
+    />
+  );
+}
 
 export default function IslandDetailScreen() {
   const router = useRouter();
@@ -28,13 +51,13 @@ export default function IslandDetailScreen() {
 
   const todayLog: Record<AvatarState, string> = {
     thriving: '✓ pulled from HealthKit · 82% of goal',
-    healthy:  'pulled from HealthKit · 68% of goal',
-    sick:     'missed yesterday — a short walk recovers you',
-    critical: '3 days missed — your island is wilting',
+    healthy:  'Pulled From HealthKit · 68% Of Goal',
+    sick:     'Missed Yesterday — A Short Walk Recovers You',
+    critical: '3 Days Missed — Your Island Is Wilting',
   };
 
   return (
-    <WorldBg>
+    <WaterBg>
       <SafeAreaView style={{ flex: 1 }}>
         {/* Nav */}
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 14, paddingTop: 8, paddingBottom: 4 }}>
@@ -46,10 +69,10 @@ export default function IslandDetailScreen() {
         {/* Island hero */}
         <View style={{ alignItems: 'center', height: 200, justifyContent: 'center' }}>
           <View style={{ alignItems: 'center' }}>
-            <View style={{ marginBottom: -58, zIndex: 1, transform: [{ translateX: 22 }] }}>
+            <View style={{ marginBottom: MAP_ISLAND_IMG[type] ? -72 : -58, zIndex: 1, transform: [{ translateX: 22 }] }}>
               <Blob state={st} scale={5} />
             </View>
-            <Island type={type} state={st} scale={4} />
+            <MapIslandArt type={type} state={st} scale={4} />
           </View>
         </View>
 
@@ -69,7 +92,7 @@ export default function IslandDetailScreen() {
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
                 <Text style={{ fontSize: 16 }}>🔥</Text>
                 <H3 style={{ flex: 1 }}>{meta.streak} day streak</H3>
-                <Small>last 30 days</Small>
+                <Small>Last 30 Days</Small>
               </View>
               <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 4 }}>
                 {pattern.map((p, i) => (
@@ -77,7 +100,7 @@ export default function IslandDetailScreen() {
                 ))}
               </View>
               <View style={{ flexDirection: 'row', gap: 14 }}>
-                {[['hit','#6ed4a3'], ['partial','#ffc260'], ['missed','#d76060']] .map(([label, color]) => (
+                {[['Hit','#6ed4a3'], ['Partial','#ffc260'], ['Missed','#d76060']] .map(([label, color]) => (
                   <View key={label} style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
                     <View style={{ width: 10, height: 10, backgroundColor: color }} />
                     <Small>{label}</Small>
@@ -89,16 +112,16 @@ export default function IslandDetailScreen() {
 
           {/* Today's log */}
           <VQCard soft>
-            <Eyebrow style={{ marginBottom: 6 }}>today's log</Eyebrow>
+            <Eyebrow style={{ marginBottom: 6 }}>Today's Log</Eyebrow>
             <H3>{todayLog[st]}</H3>
           </VQCard>
 
           {/* XP / Level / Health */}
           <View style={{ flexDirection: 'row', gap: 8 }}>
             {[
-              { icon: '⭐', val: '+24 xp', label: 'today' },
-              { icon: '🏆', val: 'Lvl 4',  label: 'next: 120 xp' },
-              { icon: '❤️', val: '78/100', label: 'health' },
+              { icon: '⭐', val: '+24 XP', label: 'Today' },
+              { icon: '🏆', val: 'Lvl 4',  label: 'Next: 120 XP' },
+              { icon: '❤️', val: '78/100', label: 'Health' },
             ].map(item => (
               <VQCard key={item.label}>
                 <View style={{ alignItems: 'center', gap: 4, flex: 1 }}>
@@ -111,6 +134,6 @@ export default function IslandDetailScreen() {
           </View>
         </ScrollView>
       </SafeAreaView>
-    </WorldBg>
+    </WaterBg>
   );
 }

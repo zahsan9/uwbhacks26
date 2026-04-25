@@ -30,7 +30,6 @@ export default function RootLayout() {
   return (
     <Stack screenOptions={{ headerShown: false, animation: 'slide_from_right' }}>
       <Stack.Screen name="(tabs)" />
-      <Stack.Screen name="map" />
       <Stack.Screen name="island" />
     </Stack>
   );

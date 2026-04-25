@@ -1,7 +1,11 @@
 import { AvatarState, IslandType } from './theme';
 
 export const islandName: Record<IslandType, string> = {
-  walk: 'Palm Cove', sleep: 'Mountain', screen: 'Volcano', learn: 'Bamboo', quest: 'Shrine',
+  walk: 'Steps Island',
+  sleep: 'Sleep Island',
+  screen: 'Screen Time Island',
+  learn: 'Learning Island',
+  quest: 'Quest Island',
 };
 
 export const islandMeta: Record<IslandType, { stat: string; unit: string; goal: string; streak: number }> = {
