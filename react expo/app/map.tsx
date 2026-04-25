@@ -306,7 +306,7 @@ export default function MapScreen() {
             {/* Sleep island — custom PNG, same size as home island */}
             {(() => { const pos = POSITIONS.sleep; return (
               <Pressable onPress={() => openIsland('sleep')}
-                style={{ position: 'absolute', left: pos.x - pos.scale * 32, top: pos.y - pos.scale * 20, alignItems: 'center' }}>
+                style={{ position: 'absolute', left: pos.x - pos.scale * 26, top: pos.y - pos.scale * 20, alignItems: 'center' }}>
                 <Animated.View style={{ transform: [{ translateY: sleepBobAnim }], alignItems: 'center' }}>
                   <Image source={SLEEP_ISLAND_IMG} style={{ width: 52 * pos.scale, height: 32 * pos.scale }} contentFit="contain" />
                   <Text style={{ fontFamily: 'PixelifySans_500Medium', fontSize: 10, color: 'rgba(255,255,255,0.85)', letterSpacing: 0.4, marginTop: 4 }}>sleep</Text>
@@ -317,7 +317,7 @@ export default function MapScreen() {
             {/* Screen island — custom PNG, same size as home island */}
             {(() => { const pos = POSITIONS.screen; return (
               <Pressable onPress={() => openIsland('screen')}
-                style={{ position: 'absolute', left: pos.x - pos.scale * 32, top: pos.y - pos.scale * 20, alignItems: 'center' }}>
+                style={{ position: 'absolute', left: pos.x - pos.scale * 26, top: pos.y - pos.scale * 20, alignItems: 'center' }}>
                 <Animated.View style={{ transform: [{ translateY: screenBobAnim }], alignItems: 'center' }}>
                   <Image source={SCREEN_ISLAND_IMG} style={{ width: 52 * pos.scale, height: 32 * pos.scale }} contentFit="contain" />
                   <Text style={{ fontFamily: 'PixelifySans_500Medium', fontSize: 10, color: 'rgba(255,255,255,0.85)', letterSpacing: 0.4, marginTop: 4 }}>screen time</Text>
@@ -328,7 +328,7 @@ export default function MapScreen() {
             {/* Walk island — custom PNG, same size as home island */}
             {(() => { const pos = POSITIONS.walk; return (
               <Pressable onPress={() => openIsland('walk')}
-                style={{ position: 'absolute', left: pos.x - pos.scale * 32, top: pos.y - pos.scale * 20, alignItems: 'center' }}>
+                style={{ position: 'absolute', left: pos.x - pos.scale * 26, top: pos.y - pos.scale * 20, alignItems: 'center' }}>
                 <Animated.View style={{ transform: [{ translateY: walkBobAnim }], alignItems: 'center' }}>
                   <Image source={WALK_ISLAND_IMG} style={{ width: 52 * pos.scale, height: 32 * pos.scale }} contentFit="contain" />
                   <Text style={{ fontFamily: 'PixelifySans_500Medium', fontSize: 10, color: 'rgba(255,255,255,0.85)', letterSpacing: 0.4, marginTop: 4 }}>walk</Text>
