@@ -12,6 +12,7 @@ from typing import Optional
 import numpy as np
 import onnxruntime as ort
 from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
 from PIL import Image
 from pydantic import BaseModel
 
@@ -68,6 +69,13 @@ class VerifyResponse(BaseModel):
 # ---------------------------------------------------------------------------
 
 app = FastAPI(title="VitaQuest Verification API", version="1.0.0")
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 
 @app.on_event("startup")
