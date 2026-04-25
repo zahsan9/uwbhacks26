@@ -83,7 +83,7 @@ const loginStyles = StyleSheet.create({
   },
   tagline: {
     fontFamily: 'PixelifySans_500Medium',
-    fontSize: 20,
+    fontSize: 18,
     color: '#ffffff',
   },
   buttonSection: {
@@ -115,10 +115,10 @@ const loginStyles = StyleSheet.create({
   },
   character: {
     position: 'absolute',
-    left: '13.7%',
-    top: '58%',
-    width: '28.9%',
-    aspectRatio: 116 / 151,
+    left: '-7.5%',
+    top: '33%',
+    width: '53%',
+    aspectRatio: 1,
   },
 });
 
