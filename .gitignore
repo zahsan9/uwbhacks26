@@ -1,8 +1,5 @@
 node_modules/
 react expo/node_modules/
-react expo/.env
 react expo/.expo/
 *.xcuserstate
-
-# Large model artifact
-vitaquest-backend/models/mobileclip_image_quantized.onnx
+vitaquest-backend/models/
