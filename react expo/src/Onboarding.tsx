@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Pressable, ScrollView, Text, View } from 'react-native';
+import { Image, Pressable, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Blob from './Blob';
 import { Body, Eyebrow, H1, H2, H3, Small, VQButton, VQCard, WorldBg } from './Components';
@@ -9,24 +9,118 @@ import { AvatarState, VQ } from './theme';
 // ─── Signup ──────────────────────────────────────────────────────────
 function SignupScreen({ onNext }: { onNext: () => void }) {
   return (
-    <WorldBg>
-      <View style={{ flex: 1, paddingHorizontal: 28, paddingTop: 80, paddingBottom: 36 }}>
-        <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', gap: 16 }}>
-          <Blob state="thriving" scale={8} />
-          <View style={{ alignItems: 'center', gap: 6 }}>
-            <Text style={{ fontFamily: 'PixelifySans_700Bold', fontSize: 36, letterSpacing: 1, color: VQ.ink }}>VitaQuest</Text>
-            <Body>one world. every habit.</Body>
+    <View style={{ flex: 1, backgroundColor: '#0a2656' }}>
+      {/* Reflected ocean at top (flipped scaleY) */}
+      <Image
+        source={require('../assets/login_bg.png')}
+        style={loginStyles.bgReflection}
+        resizeMode="cover"
+      />
+      {/* Ocean scene in lower portion */}
+      <Image
+        source={require('../assets/login_bg.png')}
+        style={loginStyles.bgOcean}
+        resizeMode="cover"
+      />
+      <SafeAreaView style={{ flex: 1 }}>
+        <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
+          <View style={{ transform: [{ rotate: '-8.61deg' }] }}>
+            <Image
+              source={require('../assets/login_logo.png')}
+              style={loginStyles.logo}
+              resizeMode="contain"
+            />
+          </View>
+          <View style={{ transform: [{ rotate: '-8.63deg' }], marginTop: -8 }}>
+            <Text style={loginStyles.tagline}>your habits, your world.</Text>
           </View>
         </View>
-        <View style={{ gap: 10 }}>
-          <VQButton label="Continue with Apple" style="oauthApple" onPress={onNext} />
-          <VQButton label="Continue with Google" style="oauthGoogle" onPress={onNext} />
-          <VQButton label="Sign up with email" style="ghost" onPress={onNext} />
+        <View style={loginStyles.buttonSection}>
+          <TouchableOpacity style={loginStyles.btn} onPress={onNext} activeOpacity={0.8}>
+            <Image source={require('../assets/icon_apple.png')} style={{ width: 16, height: 20 }} resizeMode="contain" />
+            <Text style={loginStyles.btnText}>Continue with Apple</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={loginStyles.btn} onPress={onNext} activeOpacity={0.8}>
+            <Image source={require('../assets/icon_google.png')} style={{ width: 20, height: 20 }} resizeMode="contain" />
+            <Text style={loginStyles.btnText}>Continue with Google</Text>
+          </TouchableOpacity>
+          <View style={loginStyles.divider} />
+          <TouchableOpacity style={loginStyles.btn} onPress={onNext} activeOpacity={0.8}>
+            <Text style={loginStyles.btnText}>Sign up with Email</Text>
+          </TouchableOpacity>
         </View>
-      </View>
-    </WorldBg>
+      </SafeAreaView>
+      {/* Character — panda sitting on the ocean floor, lower-left */}
+      <Image
+        source={require('../assets/login_character.png')}
+        style={loginStyles.character}
+        resizeMode="contain"
+      />
+    </View>
   );
 }
+
+const loginStyles = StyleSheet.create({
+  bgReflection: {
+    position: 'absolute',
+    width: '100%',
+    top: 0,
+    height: '30%',
+    opacity: 0.4,
+    transform: [{ scaleY: -1 }],
+  },
+  bgOcean: {
+    position: 'absolute',
+    width: '100%',
+    top: '28%',
+    bottom: 0,
+    height: '72%',
+    opacity: 0.4,
+  },
+  logo: {
+    width: 320,
+    height: 334,
+  },
+  tagline: {
+    fontFamily: 'PixelifySans_500Medium',
+    fontSize: 20,
+    color: '#ffffff',
+  },
+  buttonSection: {
+    paddingHorizontal: 28,
+    paddingBottom: 40,
+    gap: 10,
+  },
+  btn: {
+    backgroundColor: '#d9d9d9',
+    borderWidth: 1,
+    borderColor: '#e1e1e1',
+    height: 47,
+    borderRadius: 10,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 10,
+  },
+  btnText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#2a2a2a',
+    letterSpacing: -0.48,
+  },
+  divider: {
+    height: 1,
+    backgroundColor: '#e1e1e1',
+    marginHorizontal: 16,
+  },
+  character: {
+    position: 'absolute',
+    left: '13.7%',
+    top: '58%',
+    width: '28.9%',
+    aspectRatio: 116 / 151,
+  },
+});
 
 // ─── HealthKit ───────────────────────────────────────────────────────
 function HealthScreen({ onNext }: { onNext: () => void }) {
