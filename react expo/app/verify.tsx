@@ -1,4 +1,5 @@
 import PhotoVerifyScreen from "@/PhotoVerifyScreen";
+<<<<<<< HEAD
 import { useRouter } from "expo-router";
 
 // The 3 photo-verifiable habits in the demo seed state
@@ -15,4 +16,15 @@ export default function VerifyRoute() {
             }}
         />
     );
+=======
+
+export default function VerifyRoute() {
+  return (
+    <PhotoVerifyScreen
+      onComplete={(verified) => {
+        console.log("[verify] result:", verified);
+      }}
+    />
+  );
+>>>>>>> origin/archit
 }

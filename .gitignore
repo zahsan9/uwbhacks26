@@ -3,6 +3,7 @@ react expo/node_modules/
 react expo/.expo/
 *.xcuserstate
 
+<<<<<<< HEAD
 # Python
 __pycache__/
 *.pyc
@@ -13,3 +14,7 @@ __pycache__/
 vitaquest-backend/models/*.data
 vitaquest-backend/models/*.onnx
 vitaquest-backend/models/*.data
+=======
+# Large model artifact
+vitaquest-backend/models/mobileclip_image_quantized.onnx
+>>>>>>> origin/archit

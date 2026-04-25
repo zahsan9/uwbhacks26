@@ -93,6 +93,7 @@ export default function IslandDetailScreen() {
             <H3>{todayLog[st]}</H3>
           </VQCard>
 
+
           {/* XP / Level / Health */}
           <View style={{ flexDirection: 'row', gap: 8 }}>
             {[
