@@ -18,7 +18,8 @@ export default function RootLayout() {
   });
 
   useEffect(() => {
-    AsyncStorage.getItem('onboarded').then(val => setOnboarded(val === 'true'));
+    // Always start from the landing page — ignore any stored onboarding state
+    setOnboarded(false);
   }, []);
 
   if (!fontsLoaded || onboarded === null) return <View style={{ flex: 1, backgroundColor: '#EAE4DA' }} />;
