@@ -1,5 +1,5 @@
 import { useRouter } from 'expo-router';
-import { ScrollView, Text, View } from 'react-native';
+import { Pressable, ScrollView, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Blob from '../../src/Blob';
 import { Body, Eyebrow, H2, H3, StreakNum, VQButton, VQCard, WeekDashes, WorldBg } from '../../src/Components';
@@ -75,6 +75,15 @@ export default function LandingScreen() {
             <VQButton label="Open world map" onPress={() => router.push('/map')} />
           </View>
         </ScrollView>
+
+        {/* Camera FAB */}
+        <Pressable
+          onPress={() => router.push('/verify')}
+          style={{ position: 'absolute', bottom: 24, right: 20, width: 56, height: 56, borderRadius: 28, backgroundColor: VQ.water3, alignItems: 'center', justifyContent: 'center', shadowColor: VQ.water3, shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.5, shadowRadius: 0 }}
+        >
+          <Text style={{ fontSize: 24 }}>📷</Text>
+        </Pressable>
+
       </SafeAreaView>
     </WorldBg>
   );

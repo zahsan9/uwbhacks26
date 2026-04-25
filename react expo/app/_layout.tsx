@@ -32,6 +32,7 @@ export default function RootLayout() {
       <Stack.Screen name="(tabs)" />
       <Stack.Screen name="map" />
       <Stack.Screen name="island" />
+      <Stack.Screen name="verify" />
     </Stack>
   );
 }
