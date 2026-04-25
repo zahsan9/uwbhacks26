@@ -1,5 +1,6 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useRouter } from 'expo-router';
+import { supabase } from '../../lib/supabase';
 import { Pressable, ScrollView, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Blob from '../../src/Blob';
@@ -22,6 +23,7 @@ export default function ProfileScreen() {
   const router = useRouter();
 
   const handleLogout = async () => {
+    await supabase.auth.signOut();
     await AsyncStorage.removeItem('onboarded');
     router.replace('/');
   };

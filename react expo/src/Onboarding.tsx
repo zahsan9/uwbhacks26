@@ -1,5 +1,7 @@
+import * as WebBrowser from "expo-web-browser";
 import React, { useState } from "react";
 import {
+  Alert,
   Image,
   Pressable,
   ScrollView,
@@ -9,6 +11,7 @@ import {
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
+import { supabase } from "../lib/supabase";
 import Blob from "./Blob";
 import {
   Body,
@@ -24,8 +27,85 @@ import {
 import { AVATAR_NAMES, STARTER_HABITS } from "./models";
 import { AvatarState, VQ } from "./theme";
 
+WebBrowser.maybeCompleteAuthSession();
+
 // ─── Signup ──────────────────────────────────────────────────────────
 function SignupScreen({ onNext }: { onNext: () => void }) {
+  const [loading, setLoading] = useState(false);
+
+  const handleGoogleSignIn = async () => {
+    setLoading(true);
+    try {
+      const { data, error } = await supabase.auth.signInWithOAuth({
+        provider: "google",
+        options: {
+          redirectTo: "vitaquest://",
+          skipBrowserRedirect: true,
+        },
+      });
+      if (error || !data.url) throw error ?? new Error("No OAuth URL returned");
+
+      const result = await WebBrowser.openAuthSessionAsync(
+        data.url,
+        "vitaquest://",
+      );
+      if (result.type !== "success") return;
+
+      // Try PKCE code exchange first, fall back to implicit token parsing
+      const hasCode = result.url.includes("code=");
+      const hasToken = result.url.includes("access_token=");
+
+      if (hasCode) {
+        const { error: sessionError } =
+          await supabase.auth.exchangeCodeForSession(result.url);
+        if (sessionError) throw sessionError;
+      } else if (hasToken) {
+        const fragment = result.url.split("#")[1] ?? result.url.split("?")[1] ?? "";
+        const params = new URLSearchParams(fragment);
+        const accessToken = params.get("access_token");
+        const refreshToken = params.get("refresh_token") ?? "";
+        if (!accessToken) throw new Error("No access token in redirect URL");
+        const { error: sessionError } = await supabase.auth.setSession({
+          access_token: accessToken,
+          refresh_token: refreshToken,
+        });
+        if (sessionError) throw sessionError;
+      } else {
+        throw new Error(`Unexpected redirect URL: ${result.url}`);
+      }
+
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+      if (session) {
+        const { data: existing } = await supabase
+          .from("users")
+          .select("id")
+          .eq("id", session.user.id)
+          .single();
+
+        if (!existing) {
+          const fallbackUsername = `user_${session.user.id.slice(0, 8)}`;
+          await supabase.from("users").insert({
+            id: session.user.id,
+            google_id: session.user.user_metadata?.sub ?? null,
+            username:
+              session.user.user_metadata?.full_name ?? fallbackUsername,
+            avatar_id: 1,
+            total_xp: 0,
+          });
+        }
+      }
+
+      onNext();
+    } catch (err) {
+      console.warn("[SignupScreen] OAuth error:", err);
+      Alert.alert("Sign-in failed", String(err));
+    } finally {
+      setLoading(false);
+    }
+  };
+
   return (
     <View style={{ flex: 1, backgroundColor: "#071d4a" }}>
       <Image
@@ -33,7 +113,6 @@ function SignupScreen({ onNext }: { onNext: () => void }) {
         style={{ position: "absolute", top: 0, bottom: 0, left: 0, right: 0 }}
         resizeMode="stretch"
       />
-      {/* Buttons pinned to bottom */}
       <View
         style={[
           loginStyles.buttonSection,
@@ -53,8 +132,9 @@ function SignupScreen({ onNext }: { onNext: () => void }) {
           <Text style={loginStyles.btnText}>Continue with Apple</Text>
         </TouchableOpacity>
         <TouchableOpacity
-          style={loginStyles.btn}
-          onPress={onNext}
+          style={[loginStyles.btn, loading && { opacity: 0.6 }]}
+          onPress={handleGoogleSignIn}
+          disabled={loading}
           activeOpacity={0.8}
         >
           <Image
@@ -62,7 +142,9 @@ function SignupScreen({ onNext }: { onNext: () => void }) {
             style={{ width: 20, height: 20 }}
             resizeMode="contain"
           />
-          <Text style={loginStyles.btnText}>Continue with Google</Text>
+          <Text style={loginStyles.btnText}>
+            {loading ? "Signing in…" : "Continue with Google"}
+          </Text>
         </TouchableOpacity>
         <View style={loginStyles.divider} />
         <TouchableOpacity
