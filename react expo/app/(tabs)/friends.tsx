@@ -12,8 +12,8 @@ function FriendCard({ f, nudged, onNudge, onVisit }: { f: Friend; nudged: boolea
   const needs = f.state === 'sick' || f.state === 'critical';
   return (
     <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12, padding: 12, backgroundColor: VQ.surface, borderRadius: 6, borderWidth: 1.5, borderColor: VQ.border, borderLeftWidth: needs ? 4 : 1.5, borderLeftColor: needs ? VQ.coral : VQ.border }}>
-      <View style={{ width: 56, height: 56, alignItems: 'center', justifyContent: 'center' }}>
-        <Blob state={f.state} scale={2.2} />
+      <View style={{ width: 72, height: 72, alignItems: 'center', justifyContent: 'center' }}>
+        <Blob state={f.state} scale={3.5} />
       </View>
       <View style={{ flex: 1, gap: 3 }}>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
