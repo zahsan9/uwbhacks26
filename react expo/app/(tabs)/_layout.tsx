@@ -10,9 +10,10 @@ export default function TabLayout() {
       tabBarStyle: { backgroundColor: VQ.seashellSoft, borderTopColor: VQ.border },
       tabBarLabelStyle: { fontFamily: 'PixelifySans_500Medium', fontSize: 11 },
     }}>
-      <Tabs.Screen name="index"   options={{ title: 'Home',    tabBarIcon: ({ color }) => null }} />
-      <Tabs.Screen name="friends" options={{ title: 'Friends', tabBarIcon: ({ color }) => null }} />
-      <Tabs.Screen name="profile" options={{ title: 'Profile', tabBarIcon: ({ color }) => null }} />
+      <Tabs.Screen name="index"   options={{ title: 'Home',      tabBarIcon: ({ color }) => null }} />
+      <Tabs.Screen name="map"     options={{ title: 'Habit Map', tabBarIcon: ({ color }) => null }} />
+      <Tabs.Screen name="friends" options={{ title: 'Friends',   tabBarIcon: ({ color }) => null }} />
+      <Tabs.Screen name="profile" options={{ title: 'Profile',   tabBarIcon: ({ color }) => null }} />
     </Tabs>
   );
 }
