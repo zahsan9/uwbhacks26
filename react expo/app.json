@@ -1,9 +1,9 @@
 {
   "expo": {
-    "name": "VitaQuest",
-    "slug": "vitaquest",
+    "name": "HABITAT",
+    "slug": "habitat",
     "version": "1.0.0",
-    "scheme": "vitaquest",
+    "scheme": "habitat",
     "platforms": ["ios", "android"],
     "plugins": ["expo-router"],
     "ios": { "supportsTablet": false }

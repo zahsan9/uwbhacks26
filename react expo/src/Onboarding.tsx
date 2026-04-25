@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { Ionicons } from '@expo/vector-icons';
 import { Image, Pressable, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Blob from './Blob';
@@ -92,9 +93,9 @@ const loginStyles = StyleSheet.create({
     gap: 10,
   },
   btn: {
-    backgroundColor: '#d9d9d9',
+    backgroundColor: '#E8E0D4',
     borderWidth: 1,
-    borderColor: '#e1e1e1',
+    borderColor: 'rgba(232,224,212,0.6)',
     height: 47,
     borderRadius: 10,
     flexDirection: 'row',
@@ -124,26 +125,47 @@ const loginStyles = StyleSheet.create({
 
 // ─── HealthKit ───────────────────────────────────────────────────────
 function HealthScreen({ onNext }: { onNext: () => void }) {
-  const rows = [
-    { label: 'Steps & walks' }, { label: 'Sleep' }, { label: 'Activity' },
+  const items = [
+    { label: 'Steps & walks', sub: 'Daily step count & distance', icon: 'walk-outline'  as const },
+    { label: 'Sleep',         sub: 'Bedtime & sleep duration',    icon: 'moon-outline'  as const },
+    { label: 'Activity',      sub: 'Exercise minutes & calories', icon: 'flash-outline' as const },
   ];
   return (
     <WorldBg>
-      <ScrollView contentContainerStyle={{ padding: 28, paddingTop: 76 }}>
-        <Eyebrow style={{ marginBottom: 12 }}>02 / 04</Eyebrow>
-        <H1 style={{ marginBottom: 10 }}>Connect Apple Health</H1>
-        <Body style={{ marginBottom: 28 }}>We read health data silently — no logging.</Body>
-        {rows.map(r => (
-          <View key={r.label} style={{ flexDirection: 'row', alignItems: 'center', gap: 14, paddingVertical: 16, borderBottomWidth: 1, borderBottomColor: VQ.border }}>
-            <View style={{ flex: 1 }}><H3>{r.label}</H3></View>
-            <Text style={{ color: VQ.tea, fontSize: 16 }}>✓</Text>
+      <SafeAreaView style={{ flex: 1 }}>
+        <ScrollView contentContainerStyle={{ paddingHorizontal: 24, paddingTop: 24, paddingBottom: 48 }}>
+          <Eyebrow style={{ marginBottom: 14, textAlign: 'center' }}>02 / 04</Eyebrow>
+          <H1 style={{ marginBottom: 8, textAlign: 'center' }}>Connect Apple Health</H1>
+          <Body style={{ marginBottom: 28, textAlign: 'center' }}>We read health data silently — no logging.</Body>
+
+          {/* Icon */}
+          <View style={{ alignItems: 'center', marginBottom: 28 }}>
+            <View style={{ width: 64, height: 64, borderRadius: 20, backgroundColor: 'rgba(220,60,60,0.12)', borderWidth: 1.5, borderColor: 'rgba(220,80,80,0.28)', alignItems: 'center', justifyContent: 'center' }}>
+              <Ionicons name="heart" size={30} color="#e06060" />
+            </View>
           </View>
-        ))}
-        <View style={{ height: 32 }} />
-        <VQButton label="Allow HealthKit access" onPress={onNext} />
-        <View style={{ height: 8 }} />
-        <VQButton label="Maybe later" style="ghost" onPress={onNext} />
-      </ScrollView>
+
+          <VQCard>
+            {items.map((item, idx) => (
+              <View key={item.label} style={{ flexDirection: 'row', alignItems: 'center', gap: 14, paddingVertical: 14, borderBottomWidth: idx < items.length - 1 ? 1 : 0, borderBottomColor: 'rgba(232,224,212,0.12)' }}>
+                <View style={{ width: 36, height: 36, borderRadius: 10, backgroundColor: 'rgba(232,224,212,0.08)', alignItems: 'center', justifyContent: 'center' }}>
+                  <Ionicons name={item.icon} size={17} color="rgba(232,224,212,0.75)" />
+                </View>
+                <View style={{ flex: 1, gap: 2 }}>
+                  <H3>{item.label}</H3>
+                  <Small>{item.sub}</Small>
+                </View>
+                <Ionicons name="checkmark" size={16} color="rgba(110,212,163,0.9)" />
+              </View>
+            ))}
+          </VQCard>
+
+          <View style={{ height: 28 }} />
+          <VQButton label="Allow HealthKit access" onPress={onNext} />
+          <View style={{ height: 10 }} />
+          <VQButton label="Maybe later" style="ghost" onPress={onNext} />
+        </ScrollView>
+      </SafeAreaView>
     </WorldBg>
   );
 }
@@ -181,6 +203,15 @@ function AvatarScreen({ onNext }: { onNext: () => void }) {
   );
 }
 
+const HABIT_ICON: Record<string, React.ComponentProps<typeof Ionicons>['name']> = {
+  sleep:    'moon-outline',
+  steps:    'walk-outline',
+  screen:   'phone-portrait-outline',
+  gym:      'barbell-outline',
+  read:     'book-outline',
+  meditate: 'leaf-outline',
+};
+
 // ─── Habit picker ────────────────────────────────────────────────────
 function HabitsScreen({ onDone }: { onDone: () => void }) {
   const [sel, setSel] = useState<Set<string>>(new Set(['sleep', 'steps', 'screen']));
@@ -193,27 +224,38 @@ function HabitsScreen({ onDone }: { onDone: () => void }) {
   };
   return (
     <WorldBg>
-      <ScrollView contentContainerStyle={{ padding: 28, paddingTop: 76 }}>
-        <Eyebrow style={{ marginBottom: 12 }}>04 / 04</Eyebrow>
-        <H1 style={{ marginBottom: 10 }}>Pick your islands</H1>
-        <Body style={{ marginBottom: 24 }}>Each habit grows its own island.</Body>
-        {STARTER_HABITS.map(h => {
-          const on = sel.has(h.id);
-          return (
-            <Pressable key={h.id} onPress={() => toggle(h.id)} style={{ flexDirection: 'row', alignItems: 'center', gap: 14, paddingVertical: 14, borderBottomWidth: 1, borderBottomColor: VQ.border }}>
-              <View style={{ flex: 1, gap: 2 }}>
-                <H3 style={{ color: on ? VQ.ink : VQ.inkSoft }}>{h.label}</H3>
-                <Small>{h.hint}</Small>
-              </View>
-              <View style={{ width: 20, height: 20, borderRadius: 3, backgroundColor: on ? VQ.ink : 'transparent', borderWidth: 2, borderColor: on ? VQ.ink : VQ.borderStrong, alignItems: 'center', justifyContent: 'center' }}>
-                {on && <Text style={{ color: VQ.seashell, fontSize: 11, fontWeight: 'bold' }}>✓</Text>}
-              </View>
-            </Pressable>
-          );
-        })}
-        <View style={{ height: 28 }} />
-        <VQButton label={`Begin quest · ${sel.size}`} onPress={onDone} />
-      </ScrollView>
+      <SafeAreaView style={{ flex: 1 }}>
+        <ScrollView contentContainerStyle={{ paddingHorizontal: 24, paddingTop: 24, paddingBottom: 48 }}>
+          <Eyebrow style={{ marginBottom: 14 }}>04 / 04</Eyebrow>
+          <H1 style={{ marginBottom: 8 }}>Pick your islands</H1>
+          <Body style={{ marginBottom: 28 }}>Each habit grows its own island.</Body>
+
+          <VQCard>
+            {STARTER_HABITS.map((h, idx) => {
+              const on = sel.has(h.id);
+              return (
+                <Pressable key={h.id} onPress={() => toggle(h.id)}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 14, paddingVertical: 14, borderBottomWidth: idx < STARTER_HABITS.length - 1 ? 1 : 0, borderBottomColor: 'rgba(232,224,212,0.12)' }}>
+                    <View style={{ width: 36, height: 36, borderRadius: 10, backgroundColor: on ? 'rgba(110,212,163,0.12)' : 'rgba(232,224,212,0.06)', borderWidth: 1, borderColor: on ? 'rgba(110,212,163,0.3)' : 'rgba(232,224,212,0.12)', alignItems: 'center', justifyContent: 'center' }}>
+                      <Ionicons name={HABIT_ICON[h.id]} size={17} color={on ? 'rgba(110,212,163,0.9)' : 'rgba(232,224,212,0.35)'} />
+                    </View>
+                    <View style={{ flex: 1, gap: 2 }}>
+                      <H3 style={{ color: on ? '#E8E0D4' : 'rgba(232,224,212,0.4)' }}>{h.label}</H3>
+                      <Small>{h.hint}</Small>
+                    </View>
+                    <View style={{ width: 22, height: 22, borderRadius: 6, backgroundColor: on ? 'rgba(110,212,163,0.15)' : 'transparent', borderWidth: 1.5, borderColor: on ? 'rgba(110,212,163,0.5)' : 'rgba(232,224,212,0.2)', alignItems: 'center', justifyContent: 'center' }}>
+                      {on && <Ionicons name="checkmark" size={13} color="rgba(110,212,163,0.9)" />}
+                    </View>
+                  </View>
+                </Pressable>
+              );
+            })}
+          </VQCard>
+
+          <View style={{ height: 28 }} />
+          <VQButton label="Continue to habitats" onPress={onDone} />
+        </ScrollView>
+      </SafeAreaView>
     </WorldBg>
   );
 }
