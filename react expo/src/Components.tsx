@@ -41,22 +41,23 @@ const btnFg:     Record<BtnStyle, string> = { primary: VQ.seashell, ghost: VQ.in
 const btnBorder: Record<BtnStyle, string> = { primary: 'transparent', ghost: VQ.ink, oauthApple: 'transparent', oauthGoogle: VQ.borderStrong };
 const btnShadow: Record<BtnStyle, string> = { primary: 'rgba(29,29,27,0.55)', ghost: 'rgba(29,29,27,0.25)', oauthApple: 'rgba(0,0,0,0.5)', oauthGoogle: 'rgba(29,29,27,0.15)' };
 
-export function VQButton({ label, style = 'primary', onPress }: { label: string; style?: BtnStyle; onPress?: () => void }) {
+export function VQButton({ label, style = 'primary', onPress, disabled = false }: { label: string; style?: BtnStyle; onPress?: () => void; disabled?: boolean }) {
   const pressAnim = useRef(new Animated.Value(0)).current;
 
-  const onPressIn  = () => Animated.timing(pressAnim, { toValue: 1, duration: 60, useNativeDriver: true }).start();
+  const onPressIn  = () => { if (!disabled) Animated.timing(pressAnim, { toValue: 1, duration: 60, useNativeDriver: true }).start(); };
   const onPressOut = () => Animated.timing(pressAnim, { toValue: 0, duration: 60, useNativeDriver: true }).start();
 
   const translate = pressAnim.interpolate({ inputRange: [0, 1], outputRange: [0, 3] });
 
   return (
-    <Pressable onPress={onPress} onPressIn={onPressIn} onPressOut={onPressOut}>
+    <Pressable onPress={disabled ? undefined : onPress} onPressIn={onPressIn} onPressOut={onPressOut}>
       <Animated.View style={{
         backgroundColor: btnBg[style], borderRadius: 4, borderWidth: 2,
         borderColor: btnBorder[style], paddingVertical: 13, paddingHorizontal: 22,
         alignItems: 'center',
         shadowColor: btnShadow[style], shadowOffset: { width: 3, height: 3 }, shadowOpacity: 1, shadowRadius: 0,
         transform: [{ translateX: translate }, { translateY: translate }],
+        opacity: disabled ? 0.4 : 1,
       }}>
         <Text style={{ fontFamily: 'PixelifySans_600SemiBold', fontSize: 14, letterSpacing: 0.5, color: btnFg[style] }}>{label}</Text>
       </Animated.View>

@@ -37,6 +37,7 @@ interface LiveHabit {
   icon: string;
   state: AvatarState;
   streak: number;
+  locked: boolean;
 }
 
 interface HomeData {
@@ -91,22 +92,23 @@ export default function LandingScreen() {
       // 2. Fetch habits
       const { data: habitRows } = await supabase
         .from('habits')
-        .select('id, name, habit_id_key, is_healthkit')
+        .select('id, name, habit_id_key, is_healthkit, tier')
         .eq('user_id', userId);
 
       const habits: LiveHabit[] = await Promise.all(
-        (habitRows ?? []).map(async (h: { id: string; name: string; habit_id_key: string; is_healthkit: boolean }) => {
-          const [score, streak] = await Promise.all([
-            getHabitScore(h.id),
-            getHabitStreak(h.id),
-          ]);
+        (habitRows ?? []).map(async (h: { id: string; name: string; habit_id_key: string; is_healthkit: boolean; tier: number }) => {
+          const locked = (h.tier ?? 1) >= 2;
+          const [score, streak] = locked
+            ? [50, 0]
+            : await Promise.all([getHabitScore(h.id), getHabitStreak(h.id)]);
           return {
             id: h.id,
             name: HABIT_DISPLAY_NAME[h.habit_id_key] ?? h.name,
             habitIdKey: h.habit_id_key,
             icon: HABIT_ICON[h.habit_id_key] ?? '❓',
-            state: getAvatarState(score),
+            state: locked ? 'sick' as AvatarState : getAvatarState(score),
             streak,
+            locked,
           };
         })
       );
@@ -115,10 +117,10 @@ export default function LandingScreen() {
       const compositeScore = await getCompositeScore(userId);
       const streak = await getOverallStreak(userId);
 
-      // 4. Photo habit keys for verify route
+      // 4. Photo habit keys for verify route (active only — skip locked and HealthKit)
       const photoHabitIds = (habitRows ?? [])
-        .filter((h: { is_healthkit: boolean; habit_id_key: string }) => !h.is_healthkit)
-        .map((h: { is_healthkit: boolean; habit_id_key: string }) => h.habit_id_key)
+        .filter((h: { is_healthkit: boolean; habit_id_key: string; tier: number }) => !h.is_healthkit && (h.tier ?? 1) < 2)
+        .map((h: { is_healthkit: boolean; habit_id_key: string; tier: number }) => h.habit_id_key)
         .filter(Boolean);
 
       setData({
@@ -218,20 +220,21 @@ export default function LandingScreen() {
                 </Text>
               ) : (
                 data.habits.map((h, idx) => (
-                  <View key={h.id} style={{ flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 12, borderBottomWidth: idx < data.habits.length - 1 ? 1 : 0, borderBottomColor: VQ.border }}>
-                    <Text style={{ fontSize: 18 }}>{h.icon}</Text>
-                    <H3 style={{ flex: 1 }}>{h.name}</H3>
-                    <WeekDashes state={h.state} />
-                    <StreakNum value={h.streak} />
+                  <View key={h.id} style={{ flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 12, borderBottomWidth: idx < data.habits.length - 1 ? 1 : 0, borderBottomColor: VQ.border, opacity: h.locked ? 0.45 : 1 }}>
+                    <Text style={{ fontSize: 18 }}>{h.locked ? '🔒' : h.icon}</Text>
+                    <View style={{ flex: 1 }}>
+                      <H3>{h.name}</H3>
+                      {h.locked && <Text style={{ fontFamily: 'PixelifySans_400Regular', fontSize: 10, color: VQ.inkDim, marginTop: 1 }}>locked island</Text>}
+                    </View>
+                    {!h.locked && <WeekDashes state={h.state} />}
+                    {!h.locked && <StreakNum value={h.streak} />}
                   </View>
                 ))
               )}
             </VQCard>
           </View>
 
-          <View style={{ paddingHorizontal: 20, marginTop: 16 }}>
-            <VQButton label="Open world map" onPress={() => router.push('/map')} />
-          </View>
+
         </ScrollView>
 
         {/* Camera FAB */}

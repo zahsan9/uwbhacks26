@@ -1,3 +1,4 @@
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as WebBrowser from "expo-web-browser";
 import React, { useState } from "react";
 import {
@@ -340,21 +341,24 @@ const HABIT_NAME_MAP: Record<string, string> = {
   meditate: 'Meditation',
 };
 
+const MAX_TOTAL = 5;
+const MAX_ACTIVE = 3;
+
 function HabitsScreen({ onDone }: { onDone: () => void }) {
-  const [sel, setSel] = useState<Set<string>>(
-    new Set(['sleep', 'steps', 'screen']),
-  );
+  const [selOrder, setSelOrder] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
 
   const toggle = (id: string) => {
-    // sleep and steps are locked — always selected
-    if (id === 'sleep' || id === 'steps') return;
-    setSel((prev) => {
-      const next = new Set(prev);
-      next.has(id) ? next.delete(id) : next.add(id);
-      return next;
+    setSelOrder(prev => {
+      if (prev.includes(id)) return prev.filter(x => x !== id);
+      if (prev.length >= MAX_TOTAL) return prev;
+      return [...prev, id];
     });
   };
+
+  const idxOf = (id: string) => selOrder.indexOf(id);
+  const isSelected = (id: string) => selOrder.includes(id);
+  const isLocked = (id: string) => idxOf(id) >= MAX_ACTIVE;
 
   const handleBeginQuest = async () => {
     setLoading(true);
@@ -366,46 +370,18 @@ function HabitsScreen({ onDone }: { onDone: () => void }) {
       }
       const userId = session.user.id;
 
-      // Build rows to insert.
-      // Always include sleep + steps as HealthKit habits regardless of selection.
-      const habitRows: {
-        user_id: string;
-        name: string;
-        habit_id_key: string;
-        is_healthkit: boolean;
-        healthkit_type: string | null;
-        tier: number;
-      }[] = [
-          {
-            user_id: userId,
-            name: 'Walking',
-            habit_id_key: 'walk',
-            is_healthkit: true,
-            healthkit_type: 'steps',
-            tier: 1,
-          },
-          {
-            user_id: userId,
-            name: 'Sleep',
-            habit_id_key: 'sleep',
-            is_healthkit: true,
-            healthkit_type: 'sleep',
-            tier: 1,
-          },
-        ];
-
-      // Add photo habits the user selected (skip sleep/steps — already added above)
-      for (const id of sel) {
-        if (id === 'sleep' || id === 'steps') continue;
-        habitRows.push({
+      const habitRows = selOrder.map((id, i) => {
+        const isHealthKit = id === 'sleep' || id === 'steps' || id === 'screen';
+        const hkType = id === 'sleep' ? 'sleep' : id === 'steps' ? 'steps' : id === 'screen' ? 'screentime' : null;
+        return {
           user_id: userId,
           name: HABIT_NAME_MAP[id] ?? id,
           habit_id_key: HABIT_ID_KEY_MAP[id] ?? id,
-          is_healthkit: false,
-          healthkit_type: null,
-          tier: 1,
-        });
-      }
+          is_healthkit: isHealthKit,
+          healthkit_type: hkType,
+          tier: i < MAX_ACTIVE ? 1 : 2, // tier 2 = locked initially
+        };
+      });
 
       // Delete any existing habits for this user first (idempotent re-run)
       await supabase.from('habits').delete().eq('user_id', userId);
@@ -418,6 +394,16 @@ function HabitsScreen({ onDone }: { onDone: () => void }) {
       }
 
       console.log('[HabitsScreen] seeded', habitRows.length, 'habits for user', userId);
+
+      // Persist selected habits so the map knows which 5 islands to show and which are locked
+      const slots = selOrder.map((id, i) => ({
+        habitId: id,
+        key: HABIT_ID_KEY_MAP[id] ?? id,
+        label: HABIT_NAME_MAP[id] ?? id,
+        locked: i >= MAX_ACTIVE,
+      }));
+      await AsyncStorage.setItem('selectedHabitSlots', JSON.stringify(slots));
+
       onDone();
     } catch (err) {
       console.warn('[HabitsScreen] unexpected error:', err);
@@ -432,12 +418,23 @@ function HabitsScreen({ onDone }: { onDone: () => void }) {
       <ScrollView contentContainerStyle={{ padding: 28, paddingTop: 76 }}>
         <Eyebrow style={{ marginBottom: 12 }}>04 / 04</Eyebrow>
         <H1 style={{ marginBottom: 10 }}>Pick your islands</H1>
-        <Body style={{ marginBottom: 24 }}>
-          Each habit grows its own island.
-        </Body>
+        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+          <Body>First 3 are active. Last 2 start locked.</Body>
+        </View>
+        <View style={{ flexDirection: 'row', gap: 8, marginBottom: 20 }}>
+          <View style={{ flex: 1, backgroundColor: VQ.skySoft, borderRadius: 6, paddingVertical: 8, alignItems: 'center' }}>
+            <Small style={{ color: VQ.water3, fontFamily: 'PixelifySans_600SemiBold' }}>active</Small>
+            <Text style={{ fontFamily: 'PixelifySans_700Bold', fontSize: 20, color: VQ.water3, lineHeight: 24 }}>{Math.min(selOrder.length, MAX_ACTIVE)} / {MAX_ACTIVE}</Text>
+          </View>
+          <View style={{ flex: 1, backgroundColor: VQ.seashellDeep, borderRadius: 6, paddingVertical: 8, alignItems: 'center' }}>
+            <Small style={{ color: VQ.inkDim, fontFamily: 'PixelifySans_600SemiBold' }}>locked</Small>
+            <Text style={{ fontFamily: 'PixelifySans_700Bold', fontSize: 20, color: VQ.inkDim, lineHeight: 24 }}>{Math.max(0, selOrder.length - MAX_ACTIVE)} / {MAX_TOTAL - MAX_ACTIVE}</Text>
+          </View>
+        </View>
         {STARTER_HABITS.map((h) => {
-          const on = sel.has(h.id);
-          const locked = h.id === 'sleep' || h.id === 'steps';
+          const on = isSelected(h.id);
+          const locked = isLocked(h.id);
+          const atMax = selOrder.length >= MAX_TOTAL && !on;
           return (
             <Pressable
               key={h.id}
@@ -449,35 +446,30 @@ function HabitsScreen({ onDone }: { onDone: () => void }) {
                 paddingVertical: 14,
                 borderBottomWidth: 1,
                 borderBottomColor: VQ.border,
-                opacity: locked ? 0.6 : 1,
+                opacity: atMax ? 0.3 : 1,
               }}
             >
               <View style={{ flex: 1, gap: 2 }}>
                 <H3 style={{ color: on ? VQ.ink : VQ.inkSoft }}>{h.label}</H3>
-                <Small>{locked ? 'Auto · always on' : h.hint}</Small>
+                <Small>{h.hint}</Small>
               </View>
+              {on && locked && (
+                <Text style={{ fontSize: 13, color: VQ.inkDim }}>🔒</Text>
+              )}
               <View
                 style={{
                   width: 20,
                   height: 20,
                   borderRadius: 3,
-                  backgroundColor: on ? VQ.ink : 'transparent',
+                  backgroundColor: on && !locked ? VQ.ink : on && locked ? VQ.inkDim : 'transparent',
                   borderWidth: 2,
-                  borderColor: on ? VQ.ink : VQ.borderStrong,
+                  borderColor: on ? (locked ? VQ.inkDim : VQ.ink) : VQ.borderStrong,
                   alignItems: 'center',
                   justifyContent: 'center',
                 }}
               >
                 {on && (
-                  <Text
-                    style={{
-                      color: VQ.seashell,
-                      fontSize: 11,
-                      fontWeight: 'bold',
-                    }}
-                  >
-                    ✓
-                  </Text>
+                  <Text style={{ color: VQ.seashell, fontSize: 11, fontWeight: 'bold' }}>✓</Text>
                 )}
               </View>
             </Pressable>
@@ -485,8 +477,9 @@ function HabitsScreen({ onDone }: { onDone: () => void }) {
         })}
         <View style={{ height: 28 }} />
         <VQButton
-          label={loading ? 'Saving…' : `Begin quest · ${sel.size}`}
+          label={loading ? 'Saving…' : selOrder.length === 0 ? 'Pick 5 habits' : `Begin quest · ${selOrder.length} island${selOrder.length === 1 ? '' : 's'}`}
           onPress={handleBeginQuest}
+          disabled={selOrder.length === 0}
         />
       </ScrollView>
     </WorldBg>

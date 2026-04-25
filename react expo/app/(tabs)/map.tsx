@@ -1,6 +1,5 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { Image } from "expo-image";
-import { useRouter } from "expo-router";
 import { useEffect, useRef, useState } from "react";
 import {
   Animated,
@@ -14,7 +13,7 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import Svg, { Path } from "react-native-svg";
-import Blob from "../src/Blob";
+import Blob from "../../src/Blob";
 
 import {
   BackButton,
@@ -26,20 +25,19 @@ import {
   VQCard,
   WaterBg,
   WorldBg,
-} from "../src/Components";
-import Island from "../src/Island";
-import { ISLAND_STATES, islandMeta, islandName } from "../src/models";
-import { AvatarState, IslandType, VQ } from "../src/theme";
+} from "../../src/Components";
+import Island from "../../src/Island";
+import { ISLAND_STATES, islandMeta, islandName } from "../../src/models";
+import { AvatarState, IslandType, VQ } from "../../src/theme";
 
-const WALK_GIF = require("../assets/cute_chubby_fat_blue_panda_round_roly-poly_body_si_sleepy_east.gif");
-const HOME_ISLAND_IMG = require("../assets/home_island.png");
-const WALK_ISLAND_IMG = require("../assets/walk_island.png");
-const SLEEP_ISLAND_IMG = require("../assets/sleep_island.png");
-const SCREEN_ISLAND_IMG = require("../assets/screen_island.png");
-const MEDITATION_ISLAND_IMG = require("../assets/FINAL_HOTSPRING_MEDITATION-removebg-preview.png");
-const WORKOUT_ISLAND_IMG = require("../assets/workout_island-removebg-preview.png");
+const WALK_GIF = require("../../assets/cute_chubby_fat_blue_panda_round_roly-poly_body_si_sleepy_east.gif");
+const HOME_ISLAND_IMG = require("../../assets/home_island.png");
+const WALK_ISLAND_IMG = require("../../assets/walk_island.png");
+const SLEEP_ISLAND_IMG = require("../../assets/sleep_island.png");
+const SCREEN_ISLAND_IMG = require("../../assets/screen_island.png");
+const MEDITATION_ISLAND_IMG = require("../../assets/FINAL_HOTSPRING_MEDITATION-removebg-preview.png");
+const WORKOUT_ISLAND_IMG = require("../../assets/workout_island-removebg-preview.png");
 
-// Custom PNG lookup — these replace the pixel-art Island component for known habits
 const HABIT_PNG: Record<string, any> = {
   walk: WALK_ISLAND_IMG,
   sleep: SLEEP_ISLAND_IMG,
@@ -55,24 +53,20 @@ const HABIT_SIZE_MULTIPLIER: Record<string, number> = {
 
 const { width: W, height: H } = Dimensions.get("window");
 
-// ─── Map geometry ─────────────────────────────────────────────────────────────
-// Positions are in the canvas coordinate space (same W×H as screen).
-// Drag bounds let the user reveal content near the edges and slightly beyond.
 const POSITIONS: Record<string, { x: number; y: number; scale: number }> = {
   home: { x: W * 0.5, y: H * 0.44, scale: 3.6 },
-  slot0: { x: W * 0.82, y: H * 0.18, scale: 2.8 }, // top-right
-  slot1: { x: W * 0.18, y: H * 0.18, scale: 2.8 }, // top-left
-  slot2: { x: W * 0.84, y: H * 0.68, scale: 2.7 }, // bottom-right
-  slot3: { x: W * 0.16, y: H * 0.68, scale: 2.7 }, // bottom-left
-  slot4: { x: W * 0.5, y: H * 0.03, scale: 2.5 }, // top-center (drag down to reveal)
+  slot0: { x: W * 0.82, y: H * 0.18, scale: 2.8 },
+  slot1: { x: W * 0.18, y: H * 0.18, scale: 2.8 },
+  slot2: { x: W * 0.84, y: H * 0.68, scale: 2.7 },
+  slot3: { x: W * 0.16, y: H * 0.68, scale: 2.7 },
+  slot4: { x: W * 0.5, y: H * 0.03, scale: 2.5 },
 };
 
-// How much the user can pan the map. Generous bounds for future island expansion.
 const DRAG_BOUNDS = {
   minX: -W * 0.35,
   maxX: W * 0.35,
   minY: -H * 0.15,
-  maxY: H * 0.22, // more downward slack to reveal slot4
+  maxY: H * 0.22,
 };
 
 const CURVE_OFFSETS: Record<string, number> = {
@@ -96,13 +90,12 @@ const DEFAULT_HABIT_SLOTS: HabitSlot[] = [
   { habitId: "sleep", key: "sleep", label: "Sleep", locked: false },
   { habitId: "screen", key: "screen", label: "Screen Time", locked: false },
   { habitId: "gym", key: "gym", label: "Workout", locked: true },
-  { habitId: "read", key: "reading", label: "Read", locked: true },
+  { habitId: "meditate", key: "meditation", label: "Meditation", locked: true },
 ];
 
 const habitKeyToIslandType = (key: string): IslandType => {
   if (key === "walk" || key === "sleep" || key === "screen")
     return key as IslandType;
-  // Map other habits to island visual types until custom art arrives
   const map: Record<string, IslandType> = {
     gym: "walk",
     running: "walk",
@@ -114,7 +107,6 @@ const habitKeyToIslandType = (key: string): IslandType => {
 };
 
 const SQUARE = Math.floor((W - 60 - 36) / 10);
-
 const home = POSITIONS.home;
 const PANDA_SCALE = 4.5;
 const PANDA_SIZE = PANDA_SCALE * 20;
@@ -316,7 +308,6 @@ function IslandDetail({
 
 // ─── Map screen ───────────────────────────────────────────────────────────────
 export default function MapScreen() {
-  const router = useRouter();
   const [overlayIsland, setOverlayIsland] = useState<string | null>(null);
   const [habitSlots, setHabitSlots] =
     useState<HabitSlot[]>(DEFAULT_HABIT_SLOTS);
@@ -327,25 +318,21 @@ export default function MapScreen() {
     });
   }, []);
 
-  // ── Animation values ──────────────────────────────────────────────────────
   const pandaTX = useRef(new Animated.Value(0)).current;
   const pandaTY = useRef(new Animated.Value(0)).current;
   const mapScale = useRef(new Animated.Value(1)).current;
-  const mapTX = useRef(new Animated.Value(0)).current; // island open/close pan
+  const mapTX = useRef(new Animated.Value(0)).current;
   const mapTY = useRef(new Animated.Value(0)).current;
   const overlayOpa = useRef(new Animated.Value(0)).current;
-
-  const dragX = useRef(new Animated.Value(0)).current; // user drag pan
+  const dragX = useRef(new Animated.Value(0)).current;
   const dragY = useRef(new Animated.Value(0)).current;
-  // Combined canvas translation = user drag + island zoom animation
   const totalTX = useRef(Animated.add(dragX, mapTX)).current;
   const totalTY = useRef(Animated.add(dragY, mapTY)).current;
-
   const walkOpa = useRef(new Animated.Value(0)).current;
   const idleOpa = useRef(new Animated.Value(1)).current;
   const walkScaleX = useRef(new Animated.Value(1)).current;
-
   const homeBobAnim = useRef(new Animated.Value(0)).current;
+
   useEffect(() => {
     Animated.loop(
       Animated.sequence([
@@ -366,7 +353,6 @@ export default function MapScreen() {
     return () => homeBobAnim.stopAnimation();
   }, []);
 
-  // ── Drag / pan with bounded limits ────────────────────────────────────────
   const isAnimating = useRef(false);
   const dragStart = useRef({ x: 0, y: 0 });
 
@@ -382,21 +368,22 @@ export default function MapScreen() {
         };
       },
       onPanResponderMove: (_, g) => {
-        const nx = Math.max(
-          DRAG_BOUNDS.minX,
-          Math.min(DRAG_BOUNDS.maxX, dragStart.current.x + g.dx),
+        dragX.setValue(
+          Math.max(
+            DRAG_BOUNDS.minX,
+            Math.min(DRAG_BOUNDS.maxX, dragStart.current.x + g.dx),
+          ),
         );
-        const ny = Math.max(
-          DRAG_BOUNDS.minY,
-          Math.min(DRAG_BOUNDS.maxY, dragStart.current.y + g.dy),
+        dragY.setValue(
+          Math.max(
+            DRAG_BOUNDS.minY,
+            Math.min(DRAG_BOUNDS.maxY, dragStart.current.y + g.dy),
+          ),
         );
-        dragX.setValue(nx);
-        dragY.setValue(ny);
       },
     }),
   ).current;
 
-  // ── Walking helpers ────────────────────────────────────────────────────────
   const startWalking = (flipped: boolean) => {
     walkScaleX.setValue(flipped ? -1 : 1);
     walkOpa.setValue(1);
@@ -410,17 +397,13 @@ export default function MapScreen() {
   const canvasCY = useRef(home.y);
   const lastIslandX = useRef(home.x);
 
-  // ── Island open / close ────────────────────────────────────────────────────
   const openIsland = (slotKey: string) => {
     const pos = POSITIONS[slotKey];
     if (!pos) return;
-
-    // Snap drag back to origin — the zoom math assumes canvas is at (0,0) base
     dragX.setValue(0);
     dragY.setValue(0);
     dragStart.current = { x: 0, y: 0 };
     isAnimating.current = true;
-
     setOverlayIsland(slotKey);
 
     const dx = pos.x - home.x + 28;
@@ -428,7 +411,6 @@ export default function MapScreen() {
     const s = 3.2;
     const panX = s * (W * 0.5 - pos.x);
     const panY = s * (canvasCY.current - pos.y);
-
     lastIslandX.current = pos.x;
     startWalking(pos.x < home.x);
 
@@ -490,7 +472,6 @@ export default function MapScreen() {
 
   const closeIsland = () => {
     startWalking(lastIslandX.current >= home.x);
-
     Animated.parallel([
       Animated.timing(overlayOpa, {
         toValue: 0,
@@ -539,41 +520,13 @@ export default function MapScreen() {
     });
   };
 
-  // ── Render ─────────────────────────────────────────────────────────────────
   return (
     <View style={{ flex: 1 }}>
       <WaterBg>
         <SafeAreaView style={{ flex: 1 }}>
-          {/* Header — fixed, not transformed */}
-          <View
-            style={{
-              flexDirection: "row",
-              justifyContent: "space-between",
-              alignItems: "center",
-              paddingHorizontal: 24,
-              paddingTop: 8,
-            }}
-          >
+          <View style={{ paddingHorizontal: 24, paddingTop: 8 }}>
             <H2 style={{ color: "#fff" }}>My Habit Islands</H2>
-            <Pressable onPress={() => router.back()}>
-              <View
-                style={{
-                  width: 36,
-                  height: 36,
-                  backgroundColor: "rgba(255,255,255,0.12)",
-                  borderRadius: 4,
-                  borderWidth: 1.5,
-                  borderColor: "rgba(255,255,255,0.25)",
-                  alignItems: "center",
-                  justifyContent: "center",
-                }}
-              >
-                <Text style={{ color: "#fff", fontSize: 14 }}>‹</Text>
-              </View>
-            </Pressable>
           </View>
-
-          {/* Drag hint */}
           <Text
             style={{
               fontFamily: "PixelifySans_400Regular",
@@ -582,13 +535,11 @@ export default function MapScreen() {
               textAlign: "center",
               letterSpacing: 0.6,
               marginTop: 2,
-              marginBottom: 0,
             }}
           >
             drag to explore
           </Text>
 
-          {/* Canvas — drag + zoom transform */}
           <Animated.View
             {...panResponder.panHandlers}
             onLayout={(e) => {
@@ -604,7 +555,6 @@ export default function MapScreen() {
               ],
             }}
           >
-            {/* Dashed connecting lines from home to each habit slot */}
             <Svg
               style={{ position: "absolute", width: "100%", height: "100%" }}
               width={W}
@@ -637,7 +587,6 @@ export default function MapScreen() {
               })}
             </Svg>
 
-            {/* Habit islands (5 slots: 3 active, 2 locked) */}
             {habitSlots.map((slot, i) => {
               const slotKey = HABIT_SLOT_KEYS[i];
               if (!slotKey) return null;
@@ -698,7 +647,6 @@ export default function MapScreen() {
               );
             })}
 
-            {/* Home island — custom PNG, with bob */}
             <Animated.View
               style={{
                 position: "absolute",
@@ -726,7 +674,6 @@ export default function MapScreen() {
               </Text>
             </Animated.View>
 
-            {/* Panda — opacity swap between walk GIF and idle blob */}
             <Animated.View
               style={{
                 position: "absolute",
@@ -768,7 +715,6 @@ export default function MapScreen() {
         </SafeAreaView>
       </WaterBg>
 
-      {/* Island detail overlay — rendered above WaterBg, full-screen */}
       {overlayIsland &&
         (() => {
           const slotIndex = HABIT_SLOT_KEYS.indexOf(overlayIsland as any);
