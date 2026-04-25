@@ -2,3 +2,14 @@ node_modules/
 react expo/node_modules/
 react expo/.expo/
 *.xcuserstate
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.DS_Store
+
+# ONNX intermediate files
+vitaquest-backend/models/*.data
+vitaquest-backend/models/*.onnx
+vitaquest-backend/models/*.data
