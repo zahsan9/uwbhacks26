@@ -11,6 +11,7 @@ import { Asset } from "expo-asset";
 import { Stack, usePathname } from "expo-router";
 import { useEffect, useState } from "react";
 import { View } from "react-native";
+import { supabase } from "../lib/supabase";
 import OnboardingView from "../src/Onboarding";
 
 export default function RootLayout() {
@@ -26,10 +27,32 @@ export default function RootLayout() {
   });
 
   useEffect(() => {
-    AsyncStorage.getItem("onboarded").then((val) =>
-      setOnboarded(val === "true"),
-    );
+    async function checkSession() {
+      // Check Supabase session first — if valid, skip onboarding regardless of the flag
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+      if (session) {
+        setOnboarded(true);
+        return;
+      }
+      // Fall back to the local flag for users who completed onboarding without OAuth
+      const val = await AsyncStorage.getItem("onboarded");
+      setOnboarded(val === "true");
+    }
+    checkSession();
   }, [pathname]);
+
+  // Keep session state in sync with Supabase auth events
+  useEffect(() => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(
+      (event, session) => {
+        if (event === "SIGNED_OUT") setOnboarded(false);
+        if (event === "SIGNED_IN" && session) setOnboarded(true);
+      }
+    );
+    return () => subscription.unsubscribe();
+  }, []);
 
   useEffect(() => {
     // Warm image cache so logout -> onboarding feels instant.

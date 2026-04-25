@@ -1,5 +1,6 @@
 node_modules/
 react expo/node_modules/
+react expo/.env
 react expo/.expo/
 *.xcuserstate
 
