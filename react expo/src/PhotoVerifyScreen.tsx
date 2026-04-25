@@ -18,8 +18,7 @@ import { useHabitVerification } from "@/hooks/useHabitVerification";
 // ---------------------------------------------------------------------------
 
 interface PhotoVerifyScreenProps {
-    habitId: string;
-    habitName: string;
+    habitIds?: string[];  // user's habit IDs — only these will be scanned
     onComplete: (verified: boolean) => void;
 }
 
@@ -31,20 +30,17 @@ const { width: SCREEN_W, height: SCREEN_H } = Dimensions.get("window");
 // Component
 // ---------------------------------------------------------------------------
 
-export default function PhotoVerifyScreen({
-    habitId,
-    habitName,
-    onComplete,
-}: PhotoVerifyScreenProps) {
+export default function PhotoVerifyScreen({ habitIds, onComplete }: PhotoVerifyScreenProps) {
     const router = useRouter();
     const [permission, requestPermission] = useCameraPermissions();
     const cameraRef = useRef<CameraView>(null);
-    const { verify } = useHabitVerification(habitId);
+    const { verify } = useHabitVerification(habitIds);
 
     // Stage state
     const [stage, setStage] = useState<Stage>("camera");
     const [frozenUri, setFrozenUri] = useState<string | null>(null);
     const [confidence, setConfidence] = useState(0);
+    const [detectedHabit, setDetectedHabit] = useState<string | null>(null);
 
     // Animated values
     const dotScale = useRef(new Animated.Value(1)).current;
@@ -171,6 +167,7 @@ export default function PhotoVerifyScreen({
 
         const result = await verify(photo.uri);
         setConfidence(result.confidence);
+        setDetectedHabit(result.detectedHabit);
 
         if (result.verified === true) {
             setStage("verified");
@@ -210,6 +207,7 @@ export default function PhotoVerifyScreen({
 
         setFrozenUri(null);
         setConfidence(0);
+        setDetectedHabit(null);
         setStage("camera");
     };
 
@@ -247,7 +245,7 @@ export default function PhotoVerifyScreen({
             />
             {/* Habit label */}
             <View style={styles.topOverlay}>
-                <Text style={styles.habitLabel}>Prove your {habitName}</Text>
+                <Text style={styles.habitLabel}>Take a photo to verify a habit</Text>
             </View>
             {/* Shutter */}
             <View style={styles.shutterRow}>
@@ -308,7 +306,11 @@ export default function PhotoVerifyScreen({
                     ]}
                 >
                     <Text style={styles.badgeIcon}>✅</Text>
-                    <Text style={styles.badgeText}>{habitName} verified!</Text>
+                    <Text style={styles.badgeText}>
+                        {detectedHabit
+                            ? `${detectedHabit.charAt(0).toUpperCase() + detectedHabit.slice(1)} verified!`
+                            : "Habit verified!"}
+                    </Text>
                     <Text style={styles.confText}>
                         {Math.round(confidence * 100)}% match
                     </Text>
@@ -370,7 +372,7 @@ export default function PhotoVerifyScreen({
                 <Text style={styles.failIcon}>❌</Text>
                 <Text style={styles.failTitle}>Couldn't verify</Text>
                 <Text style={styles.failSub}>
-                    Make sure your {habitName} activity is clearly visible.
+                    No habit was detected. Try again with the activity clearly in frame.
                 </Text>
                 <TouchableOpacity style={[styles.btn, styles.btnGray]} onPress={handleRetry}>
                     <Text style={styles.btnText}>Try Again</Text>

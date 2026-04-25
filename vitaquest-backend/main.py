@@ -47,15 +47,15 @@ prototypes: dict[str, np.ndarray] = {}
 
 
 class VerifyRequest(BaseModel):
-    habit_id: str
     frame_base64: str
     demo_token: str
+    habit_ids: Optional[list[str]] = None  # if provided, only scan these habits
 
 
 class VerifyResponse(BaseModel):
     verified: Optional[bool]
+    detected_habit: Optional[str]  # which habit matched best (or None if no match)
     confidence: float
-    proto_idx: int
     inference_ms: int
 
 
@@ -191,54 +191,63 @@ def healthz():
 @app.post("/verify", response_model=VerifyResponse, tags=["Verification"])
 def verify(payload: VerifyRequest) -> VerifyResponse:
     """
-    Verify a habit completion frame against stored prototype embeddings.
+    Blind habit detection: scans the photo against ALL loaded habit prototypes
+    and returns the best match.
 
-    - Validates demo_token
-    - Decodes and preprocesses the image
-    - Runs ONNX inference
-    - Computes cosine similarity against prototype embeddings
-    - Returns verification result with confidence and timing
+    - Does NOT require knowing the habit in advance
+    - Returns detected_habit = whichever scored highest
+    - verified=true if best similarity >= THRESHOLD_VERIFIED
+    - verified=null if best similarity is in the ambiguous band
+    - verified=false (detected_habit=None) if nothing clears the floor
     """
     # --- Auth ---
     if payload.demo_token != DEMO_TOKEN:
         raise HTTPException(status_code=401, detail="Invalid demo_token.")
 
-    # --- Habit lookup ---
-    habit_id = payload.habit_id.lower().strip()
-    if habit_id not in prototypes:
-        if habit_id not in SUPPORTED_HABITS:
-            raise HTTPException(
-                status_code=400,
-                detail=f"Unsupported habit_id '{habit_id}'. "
-                       f"Supported: {SUPPORTED_HABITS}",
-            )
-        raise HTTPException(
-            status_code=503,
-            detail=f"Prototype embeddings for '{habit_id}' not loaded. "
-                   "Place the .npy file and restart.",
-        )
+    if not prototypes:
+        raise HTTPException(status_code=503, detail="No prototype embeddings loaded.")
 
     # --- Preprocessing ---
     image_array = preprocess_image(payload.frame_base64)
 
-    # --- Inference (synchronous for lowest latency) ---
+    # --- Inference ---
     t0 = time.perf_counter()
     embedding = compute_embedding(image_array)
     t1 = time.perf_counter()
     inference_ms = int((t1 - t0) * 1000)
 
-    # --- Similarity ---
-    proto_matrix = prototypes[habit_id]
-    sims = cosine_similarities(embedding, proto_matrix)
+    # --- Determine which habits to scan ---
+    if payload.habit_ids:
+        # Only scan the habits the user actually has
+        habits_to_scan = {h: v for h, v in prototypes.items() if h in payload.habit_ids}
+        if not habits_to_scan:
+            raise HTTPException(
+                status_code=400,
+                detail=f"None of the requested habit_ids {payload.habit_ids} have prototypes loaded.",
+            )
+    else:
+        habits_to_scan = prototypes
 
-    best_idx = int(np.argmax(sims))
-    best_sim = float(sims[best_idx])
+    # --- Score against selected habits only ---
+    best_habit: Optional[str] = None
+    best_sim: float = -1.0
+
+    for habit_id, proto_matrix in habits_to_scan.items():
+        sims = cosine_similarities(embedding, proto_matrix)
+        top_sim = float(np.max(sims))
+        if top_sim > best_sim:
+            best_sim = top_sim
+            best_habit = habit_id
 
     verified = similarity_to_verified(best_sim)
 
+    # If nothing cleared the floor threshold, don't report a habit
+    if verified is False:
+        best_habit = None
+
     return VerifyResponse(
         verified=verified,
+        detected_habit=best_habit,
         confidence=round(best_sim, 6),
-        proto_idx=best_idx,
         inference_ms=inference_ms,
     )
