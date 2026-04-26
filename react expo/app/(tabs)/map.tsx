@@ -15,10 +15,10 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { useFocusEffect } from "@react-navigation/native";
 import Svg, { Path } from "react-native-svg";
 import { supabase } from "../../lib/supabase";
+import { readScreenCache, writeScreenCache } from "../../lib/screenCache";
 import {
   getAvatarState,
-  getHabitScore,
-  getHabitStreak,
+  getDaySince,
 } from "../../lib/scoreEngine";
 import Blob from "../../src/Blob";
 import { setTabAccentMode } from "../../src/tabAccent";
@@ -89,6 +89,7 @@ const HABIT_SLOT_KEYS = ["slot0", "slot1", "slot2", "slot3", "slot4"] as const;
 type HabitSlot = {
   habitId: string;
   rowId?: string;
+  createdAt?: string;
   key: string;
   label: string;
   locked: boolean;
@@ -112,14 +113,6 @@ type HabitIslandDetail = {
   score: number;
   weekCount: number;
 };
-const DEFAULT_HABIT_SLOTS: HabitSlot[] = [
-  { habitId: "steps", key: "walk", label: "Walking", locked: false, state: "healthy" },
-  { habitId: "sleep", key: "sleep", label: "Sleep", locked: false, state: "healthy" },
-  { habitId: "screen", key: "screen", label: "Screen Time", locked: false, state: "healthy" },
-  { habitId: "gym", key: "gym", label: "Workout", locked: true, state: "sick" },
-  { habitId: "meditate", key: "meditation", label: "Meditation", locked: true, state: "sick" },
-];
-
 const HABIT_LABELS: Record<string, string> = {
   walk: "Walking",
   sleep: "Sleep",
@@ -130,9 +123,11 @@ const HABIT_LABELS: Record<string, string> = {
   cooking: "Cooking",
   meditation: "Meditation",
 };
+const MAP_SLOTS_CACHE_KEY = "cache:map-habit-slots:v1";
+const MAP_SLOTS_CACHE_TTL_MS = 5 * 60 * 1000;
 
 function buildHabitSlots(
-  rows: Array<{ id: string; habit_id_key: string; name: string; tier: number | null }>
+  rows: Array<{ id: string; habit_id_key: string; name: string; tier: number | null; created_at?: string }>
 ): HabitSlot[] {
   const deduped = Array.from(
     new Map(
@@ -145,6 +140,7 @@ function buildHabitSlots(
   return deduped.map((row) => ({
     habitId: row.habit_id_key,
     rowId: row.id,
+    createdAt: row.created_at,
     key: row.habit_id_key,
     label: row.name || HABIT_LABELS[row.habit_id_key] || row.habit_id_key,
     locked: (row.tier ?? 1) >= 2,
@@ -170,13 +166,34 @@ function dayKeysEndingToday(numDays: number): string[] {
   });
 }
 
-function buildPattern(logDayKeys: Set<string>): DayCell[] {
-  const last30 = dayKeysEndingToday(30).reverse();
+function dayKeysFromStart(startAt: string): string[] {
+  const keys: string[] = [];
+  const start = new Date(startAt);
+  start.setHours(0, 0, 0, 0);
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  while (start.getTime() <= today.getTime()) {
+    keys.push(localDayKey(start));
+    start.setDate(start.getDate() + 1);
+  }
+  return keys;
+}
+
+function buildPattern(logDayKeys: Set<string>, startAt: string): DayCell[] {
+  const allDays = dayKeysFromStart(startAt);
   const todayKey = localDayKey(new Date());
-  return last30.map((dayKey) => ({
+  return allDays.map((dayKey) => ({
     status: logDayKeys.has(dayKey) ? "hit" : "missed",
     isToday: dayKey === todayKey,
   }));
+}
+
+function scoreFromLogDays(logDayKeys: Set<string>): number {
+  const recentDayKeys = new Set(dayKeysEndingToday(3));
+  const completedRecentDays = Array.from(logDayKeys).filter((dayKey) =>
+    recentDayKeys.has(dayKey)
+  ).length;
+  return Math.round((Math.min(completedRecentDays, 3) / 3) * 100);
 }
 
 function daysAgoFromKey(dayKey: string): number {
@@ -203,17 +220,13 @@ function buildMainStat(habitKey: string, weekCount: number): Pick<HabitIslandDet
 }
 
 async function buildHabitDetail(slot: HabitSlot): Promise<HabitIslandDetail | undefined> {
-  if (!slot.rowId || slot.locked) return undefined;
-
-  const thirtyDaysAgo = new Date();
-  thirtyDaysAgo.setHours(0, 0, 0, 0);
-  thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 29);
+  if (!slot.rowId || slot.locked || !slot.createdAt) return undefined;
 
   const { data: logs, error } = await supabase
     .from("habit_logs")
     .select("completed_at, verified_by, xp_awarded")
     .eq("habit_id", slot.rowId)
-    .gte("completed_at", thirtyDaysAgo.toISOString())
+    .gte("completed_at", new Date(slot.createdAt).toISOString())
     .order("completed_at", { ascending: false });
 
   if (error) {
@@ -242,15 +255,13 @@ async function buildHabitDetail(slot: HabitSlot): Promise<HabitIslandDetail | un
       ? `Last completed ${daysAgoFromKey(localDayKey(latestLog.completed_at))} day${daysAgoFromKey(localDayKey(latestLog.completed_at)) === 1 ? "" : "s"} ago.`
       : "No check-ins yet for this island.";
 
-  const [score, streak] = await Promise.all([
-    getHabitScore(slot.rowId),
-    getHabitStreak(slot.rowId),
-  ]);
+  const score = scoreFromLogDays(logDayKeys);
+  const streak = getDaySince(slot.createdAt);
 
   return {
     ...buildMainStat(slot.key, weekCount),
     streak,
-    pattern: buildPattern(logDayKeys),
+    pattern: buildPattern(logDayKeys, slot.createdAt),
     todayLog,
     todayXp,
     score,
@@ -347,21 +358,21 @@ function IslandDetail({
           <StatePill state={state} />
         </View>
 
-        {/* Island art */}
-        <View style={{ alignItems: "center", height: 200, justifyContent: "center" }}>
-          <View style={{ alignItems: "center" }}>
-            <View style={{ marginBottom: -58, zIndex: 1, transform: [{ translateX: 22 }] }}>
-              <Blob state={state} scale={5} />
-            </View>
-            {habitKey && HABIT_PNG[habitKey] ? (
-              <Image source={HABIT_PNG[habitKey]} style={{ width: 52 * 4 * detailScaleBoost, height: 32 * 4 * detailScaleBoost }} contentFit="contain" />
-            ) : (
-              <Island type={type} state={state} scale={4} />
-            )}
-          </View>
-        </View>
-
         <ScrollView style={{ flex: 1 }} contentContainerStyle={{ padding: 16, gap: 10, paddingBottom: 44 }}>
+          {/* Island art */}
+          <View style={{ alignItems: "center", marginBottom: 6, marginTop: 8 }}>
+            <View style={{ alignItems: "center" }}>
+              <View style={{ marginBottom: -58, zIndex: 1 }}>
+                <Blob state={state} scale={5} />
+              </View>
+              {habitKey && HABIT_PNG[habitKey] ? (
+                <Image source={HABIT_PNG[habitKey]} style={{ width: 52 * 4 * detailScaleBoost, height: 32 * 4 * detailScaleBoost }} contentFit="contain" />
+              ) : (
+                <Island type={type} state={state} scale={4} />
+              )}
+            </View>
+          </View>
+
           {/* Main stat */}
           <View style={{ backgroundColor: "rgba(0,30,45,0.65)", borderRadius: 16, borderWidth: 1, borderColor: "rgba(255,255,255,0.12)", padding: 20, alignItems: "center", gap: 6 }}>
             <Text style={{ fontFamily: "PixelifySans_700Bold", fontSize: 38, color: "#E8E0D4", lineHeight: 42 }}>
@@ -380,7 +391,7 @@ function IslandDetail({
                 {detail?.streak ?? 0} Day Streak
               </Text>
               <Text style={{ fontFamily: "PixelifySans_400Regular", fontSize: 11, color: "rgba(232,224,212,0.5)" }}>
-                Last 30 Days
+                Since Day 1
               </Text>
             </View>
             <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 4 }}>
@@ -440,11 +451,22 @@ function IslandDetail({
 // ─── Map screen ───────────────────────────────────────────────────────────────
 export default function MapScreen() {
   const [overlayIsland, setOverlayIsland] = useState<string | null>(null);
-  const [habitSlots, setHabitSlots] =
-    useState<HabitSlot[]>(DEFAULT_HABIT_SLOTS);
+  const [habitSlots, setHabitSlots] = useState<HabitSlot[]>([]);
+  const hydratedFromCache = useRef(false);
 
-  const loadHabitSlots = useCallback(async () => {
+  const loadHabitSlots = useCallback(async (silent = false) => {
     try {
+      if (!silent) {
+        const cached = await readScreenCache<HabitSlot[]>(
+          MAP_SLOTS_CACHE_KEY,
+          MAP_SLOTS_CACHE_TTL_MS
+        );
+        if (cached && cached.length > 0) {
+          setHabitSlots(cached.slice(0, HABIT_SLOT_KEYS.length));
+          hydratedFromCache.current = true;
+        }
+      }
+
       const {
         data: { session },
       } = await supabase.auth.getSession();
@@ -472,23 +494,22 @@ export default function MapScreen() {
               return {
                 ...slot,
                 state: getAvatarState(detail?.score ?? 0),
-                detail: detail ?? {
-                  ...buildMainStat(slot.key, 0),
-                  streak: 0,
-                  pattern: buildPattern(new Set<string>()),
-                  todayLog: "No check-ins yet for this island.",
-                  todayXp: 0,
-                  score: 0,
+                  detail: detail ?? {
+                    ...buildMainStat(slot.key, 0),
+                    streak: 0,
+                    pattern: buildPattern(new Set<string>(), slot.createdAt ?? new Date().toISOString()),
+                    todayLog: "No check-ins yet for this island.",
+                    todayXp: 0,
+                    score: 0,
                   weekCount: 0,
                 },
               };
             })
           );
           setHabitSlots(nextSlots);
-          await AsyncStorage.setItem(
-            "selectedHabitSlots",
-            JSON.stringify(nextSlots)
-          );
+          hydratedFromCache.current = true;
+          await writeScreenCache(MAP_SLOTS_CACHE_KEY, nextSlots);
+          await AsyncStorage.setItem("selectedHabitSlots", JSON.stringify(nextSlots));
           return;
         }
       }
@@ -498,23 +519,24 @@ export default function MapScreen() {
         try {
           const parsed = JSON.parse(raw) as HabitSlot[];
           setHabitSlots(parsed.slice(0, HABIT_SLOT_KEYS.length));
+          hydratedFromCache.current = true;
           return;
         } catch (parseErr) {
           console.warn("[map] invalid selectedHabitSlots cache:", parseErr);
         }
       }
 
-      setHabitSlots(DEFAULT_HABIT_SLOTS);
+      setHabitSlots([]);
     } catch (err) {
       console.warn("[map] failed to load habit slots:", err);
-      setHabitSlots(DEFAULT_HABIT_SLOTS);
+      if (habitSlots.length === 0) setHabitSlots([]);
     }
-  }, []);
+  }, [habitSlots.length]);
 
   useFocusEffect(
     useCallback(() => {
       setTabAccentMode('blue');
-      void loadHabitSlots();
+      void loadHabitSlots(hydratedFromCache.current);
     }, [loadHabitSlots])
   );
 

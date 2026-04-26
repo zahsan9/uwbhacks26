@@ -1,7 +1,8 @@
 import { Image } from 'expo-image';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
-import { useCallback, useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useFocusEffect } from '@react-navigation/native';
@@ -12,7 +13,6 @@ import {
   getCompositeScore,
   getDaySince,
   getHabitScore,
-  getHabitStreak,
   getLevel,
   getLevelXpCurrent,
   getLevelXpRequired,
@@ -116,90 +116,151 @@ const FALLBACK: HomeData = {
   photoHabitIds: [],
 };
 
+const HOME_CACHE_KEY = 'vitaquest:home-cache';
+const HOME_CACHE_TTL_MS = 60 * 1000;
+
+type HomeCacheEntry = {
+  userId: string;
+  cachedAt: number;
+  data: HomeData;
+};
+
+let memoryHomeCache: HomeCacheEntry | null = null;
+
+async function readHomeCache(userId: string): Promise<HomeCacheEntry | null> {
+  if (memoryHomeCache?.userId === userId) return memoryHomeCache;
+
+  try {
+    const raw = await AsyncStorage.getItem(HOME_CACHE_KEY);
+    if (!raw) return null;
+
+    const parsed = JSON.parse(raw) as HomeCacheEntry;
+    if (parsed.userId !== userId) return null;
+
+    memoryHomeCache = parsed;
+    return parsed;
+  } catch (err) {
+    console.warn('[index] readHomeCache error:', err);
+    return null;
+  }
+}
+
+async function writeHomeCache(entry: HomeCacheEntry) {
+  memoryHomeCache = entry;
+  try {
+    await AsyncStorage.setItem(HOME_CACHE_KEY, JSON.stringify(entry));
+  } catch (err) {
+    console.warn('[index] writeHomeCache error:', err);
+  }
+}
+
 export default function LandingScreen() {
   const router = useRouter();
   const accent = useTabAccentMode();
   const [data, setData] = useState<HomeData>(FALLBACK);
   const [loading, setLoading] = useState(true);
+  const hydratedFromCache = useRef(false);
 
-  const loadData = useCallback(async () => {
-    setLoading(true);
-    try {
-      const { data: { session } } = await supabase.auth.getSession();
-      if (!session?.user) return;
-      const userId = session.user.id;
-
-      // 1. Fetch user row
-      const { data: userRow } = await supabase
+  const fetchHomeData = useCallback(async (userId: string): Promise<HomeData> => {
+    const [{ data: userRow }, { data: habitRows }] = await Promise.all([
+      supabase
         .from('users')
         .select('username, total_xp, created_at')
         .eq('id', userId)
-        .single();
-
-      const totalXp: number = userRow?.total_xp ?? 0;
-      const username: string = userRow?.username ?? 'Adventurer';
-      const dayNum = userRow?.created_at ? getDaySince(userRow.created_at) : 1;
-
-      // 2. Fetch habits
-      const { data: habitRows } = await supabase
+        .single(),
+      supabase
         .from('habits')
-        .select('id, name, habit_id_key, is_healthkit, tier')
-        .eq('user_id', userId);
+        .select('id, name, habit_id_key, is_healthkit, tier, created_at')
+        .eq('user_id', userId),
+    ]);
 
-      const uniqueHabitRows = Array.from(
-        new Map(
-          (habitRows ?? [])
-            .filter((h: { habit_id_key: string }) => Boolean(h.habit_id_key))
-            .map((h: { id: string; name: string; habit_id_key: string; is_healthkit: boolean; tier: number }) => [h.habit_id_key, h])
-        ).values()
-      ).slice(0, 5);
+    const totalXp: number = userRow?.total_xp ?? 0;
+    const username: string = userRow?.username ?? 'Adventurer';
+    const dayNum = userRow?.created_at ? getDaySince(userRow.created_at) : 1;
 
-      const habits: LiveHabit[] = await Promise.all(
-        uniqueHabitRows.map(async (h: { id: string; name: string; habit_id_key: string; is_healthkit: boolean; tier: number }) => {
+    const uniqueHabitRows = Array.from(
+      new Map(
+        (habitRows ?? [])
+          .filter((h: { habit_id_key: string }) => Boolean(h.habit_id_key))
+          .map((h: { id: string; name: string; habit_id_key: string; is_healthkit: boolean; tier: number; created_at?: string }) => [h.habit_id_key, h])
+      ).values()
+    ).slice(0, 5);
+
+    const [habits, compositeScore, streak] = await Promise.all([
+      Promise.all(
+        uniqueHabitRows.map(async (h: { id: string; name: string; habit_id_key: string; is_healthkit: boolean; tier: number; created_at?: string }) => {
           const locked = (h.tier ?? 1) >= 2;
-          const [score, streak] = locked
-            ? [50, 0]
-            : await Promise.all([getHabitScore(h.id), getHabitStreak(h.id)]);
+          const score = locked ? 50 : await getHabitScore(h.id);
+          const streakValue = locked ? 0 : getDaySince(h.created_at ?? userRow?.created_at ?? new Date().toISOString());
           return {
             id: h.id,
             name: HABIT_DISPLAY_NAME[h.habit_id_key] ?? h.name,
             habitIdKey: h.habit_id_key,
             icon: HABIT_ICON[h.habit_id_key] ?? '❓',
             state: locked ? 'sick' as AvatarState : getAvatarState(score),
-            streak,
+            streak: streakValue,
             locked,
-          };
+          } satisfies LiveHabit;
         })
-      );
+      ),
+      getCompositeScore(userId),
+      getOverallStreak(userId),
+    ]);
 
-      // 3. Composite score + streak
-      const compositeScore = await getCompositeScore(userId);
-      const streak = await getOverallStreak(userId);
+    const photoHabitIds = uniqueHabitRows
+      .filter((h: { is_healthkit: boolean; habit_id_key: string; tier: number }) => !h.is_healthkit && (h.tier ?? 1) < 2)
+      .map((h: { habit_id_key: string }) => h.habit_id_key)
+      .filter(Boolean);
 
-      // 4. Photo habit keys for verify route (active only — skip locked and HealthKit)
-      const photoHabitIds = uniqueHabitRows
-        .filter((h: { is_healthkit: boolean; habit_id_key: string; tier: number }) => !h.is_healthkit && (h.tier ?? 1) < 2)
-        .map((h: { is_healthkit: boolean; habit_id_key: string; tier: number }) => h.habit_id_key)
-        .filter(Boolean);
+    return {
+      username,
+      dayNum,
+      level: getLevel(totalXp),
+      levelXpCurrent: getLevelXpCurrent(totalXp),
+      levelXpRequired: getLevelXpRequired(),
+      compositeScore,
+      streak,
+      avatarState: getAvatarState(compositeScore),
+      habits,
+      photoHabitIds,
+    };
+  }, []);
 
-      setData({
-        username,
-        dayNum,
-        level: getLevel(totalXp),
-        levelXpCurrent: getLevelXpCurrent(totalXp),
-        levelXpRequired: getLevelXpRequired(),
-        compositeScore,
-        streak,
-        avatarState: getAvatarState(compositeScore),
-        habits,
-        photoHabitIds,
+  const loadData = useCallback(async () => {
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session?.user) {
+        setLoading(false);
+        return;
+      }
+
+      const userId = session.user.id;
+      const cached = await readHomeCache(userId);
+      const cacheIsFresh = cached ? Date.now() - cached.cachedAt < HOME_CACHE_TTL_MS : false;
+
+      if (cached) {
+        setData(cached.data);
+        hydratedFromCache.current = true;
+        setLoading(false);
+        if (cacheIsFresh) return;
+      } else if (!hydratedFromCache.current) {
+        setLoading(true);
+      }
+
+      const freshData = await fetchHomeData(userId);
+      setData(freshData);
+      hydratedFromCache.current = true;
+      setLoading(false);
+      await writeHomeCache({
+        userId,
+        cachedAt: Date.now(),
+        data: freshData,
       });
     } catch (err) {
       console.warn('[index] loadData error:', err);
-    } finally {
       setLoading(false);
     }
-  }, []);
+  }, [fetchHomeData]);
 
   useFocusEffect(
     useCallback(() => {
@@ -224,7 +285,7 @@ export default function LandingScreen() {
           {/* Header */}
           <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-end', paddingHorizontal: 24, paddingTop: 16, paddingBottom: 10 }}>
             <View style={{ gap: 4 }}>
-              <Eyebrow style={{ color: HOME_UI.muted }}>Day {data.dayNum}</Eyebrow>
+              <Eyebrow style={{ color: HOME_UI.muted }}>{`Day ${data.dayNum}`}</Eyebrow>
               <Text style={{ fontFamily: 'PixelifySans_600SemiBold', fontSize: 28, color: HOME_UI.text, lineHeight: 32 }}>
                 Hi, {data.username.split(' ')[0]}
               </Text>

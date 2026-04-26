@@ -10,6 +10,8 @@ import { supabase } from './supabase';
 // ── XP / Level ────────────────────────────────────────────────────────────────
 
 const XP_PER_LEVEL = 100;
+const CACHE_TTL_MS = 20 * 1000;
+const cache = new Map<string, { expiresAt: number; value: number }>();
 
 /** Level 1 starts at 0 XP. Each level costs 100 XP flat. */
 export function getLevel(totalXp: number): number {
@@ -41,6 +43,30 @@ function startOfLocalDay(date: Date): Date {
     return day;
 }
 
+function cacheGet(key: string): number | null {
+    const hit = cache.get(key);
+    if (!hit) return null;
+    if (Date.now() > hit.expiresAt) {
+        cache.delete(key);
+        return null;
+    }
+    return hit.value;
+}
+
+function cacheSet(key: string, value: number): number {
+    cache.set(key, { value, expiresAt: Date.now() + CACHE_TTL_MS });
+    return value;
+}
+
+function daysSinceLocalDate(input: string | Date): number {
+    const start = startOfLocalDay(typeof input === 'string' ? new Date(input) : input);
+    const today = startOfLocalDay(new Date());
+    return Math.max(
+        1,
+        Math.floor((today.getTime() - start.getTime()) / (1000 * 60 * 60 * 24)) + 1
+    );
+}
+
 function localDayKey(input: string | Date): string {
     const date = typeof input === 'string' ? new Date(input) : input;
     const year = date.getFullYear();
@@ -62,6 +88,10 @@ function dayKeysEndingToday(numDays: number): string[] {
 // Score = fraction of the last 3 days that had at least one log, × 100.
 
 export async function getHabitScore(habitId: string): Promise<number> {
+    const cacheKey = `habit-score:${habitId}`;
+    const cached = cacheGet(cacheKey);
+    if (cached !== null) return cached;
+
     const since = startOfLocalDay(new Date());
     since.setDate(since.getDate() - 2);
     const recentDayKeys = new Set(dayKeysEndingToday(3));
@@ -72,7 +102,7 @@ export async function getHabitScore(habitId: string): Promise<number> {
         .eq('habit_id', habitId)
         .gte('completed_at', since.toISOString());
 
-    if (error || !data) return 0;
+    if (error || !data) return cacheSet(cacheKey, 0);
 
     const distinctDays = new Set(
         data.map((log: { completed_at: string }) =>
@@ -84,18 +114,22 @@ export async function getHabitScore(habitId: string): Promise<number> {
         recentDayKeys.has(dayKey)
     ).length;
 
-    return Math.round((Math.min(completedRecentDays, 3) / 3) * 100);
+    return cacheSet(cacheKey, Math.round((Math.min(completedRecentDays, 3) / 3) * 100));
 }
 
 // ── Composite score ───────────────────────────────────────────────────────────
 
 export async function getCompositeScore(userId: string): Promise<number> {
+    const cacheKey = `composite:${userId}`;
+    const cached = cacheGet(cacheKey);
+    if (cached !== null) return cached;
+
     const { data: habits, error } = await supabase
         .from('habits')
         .select('id, tier, habit_id_key')
         .eq('user_id', userId);
 
-    if (error || !habits || habits.length === 0) return 50; // neutral default
+    if (error || !habits || habits.length === 0) return cacheSet(cacheKey, 50); // neutral default
 
     const activeHabits = Array.from(
         new Map(
@@ -110,26 +144,54 @@ export async function getCompositeScore(userId: string): Promise<number> {
         ).values()
     );
 
-    if (activeHabits.length === 0) return 50;
+    if (activeHabits.length === 0) return cacheSet(cacheKey, 50);
 
-    const scores = await Promise.all(
-        activeHabits.map((h: { id: string }) => getHabitScore(h.id))
-    );
+    const since = startOfLocalDay(new Date());
+    since.setDate(since.getDate() - 2);
+    const activeIds = activeHabits.map((h: { id: string }) => h.id);
+    const recentDayKeys = new Set(dayKeysEndingToday(3));
+
+    const { data: logs, error: logsError } = await supabase
+        .from('habit_logs')
+        .select('habit_id, completed_at')
+        .in('habit_id', activeIds)
+        .gte('completed_at', since.toISOString());
+
+    if (logsError || !logs) return cacheSet(cacheKey, 50);
+
+    const byHabit = new Map<string, Set<string>>();
+    activeIds.forEach((id) => byHabit.set(id, new Set<string>()));
+    logs.forEach((log: { habit_id: string; completed_at: string }) => {
+        const existing = byHabit.get(log.habit_id);
+        if (existing) existing.add(localDayKey(log.completed_at));
+    });
+
+    const scores = activeIds.map((habitId) => {
+        const distinctDays = byHabit.get(habitId) ?? new Set<string>();
+        const completedRecentDays = Array.from(distinctDays).filter((dayKey) =>
+            recentDayKeys.has(dayKey)
+        ).length;
+        return Math.round((Math.min(completedRecentDays, 3) / 3) * 100);
+    });
     const avg = scores.reduce((a: number, b: number) => a + b, 0) / scores.length;
-    return Math.round(avg);
+    return cacheSet(cacheKey, Math.round(avg));
 }
 
 // ── Per-habit streak ──────────────────────────────────────────────────────────
 // Count consecutive days (ending today) where the habit has at least one log.
 
 export async function getHabitStreak(habitId: string): Promise<number> {
+    const cacheKey = `habit-streak:${habitId}`;
+    const cached = cacheGet(cacheKey);
+    if (cached !== null) return cached;
+
     const { data, error } = await supabase
         .from('habit_logs')
         .select('completed_at')
         .eq('habit_id', habitId)
         .order('completed_at', { ascending: false });
 
-    if (error || !data || data.length === 0) return 0;
+    if (error || !data || data.length === 0) return cacheSet(cacheKey, 0);
 
     const logDays = new Set(
         data.map((log: { completed_at: string }) =>
@@ -148,48 +210,39 @@ export async function getHabitStreak(habitId: string): Promise<number> {
             break;
         }
     }
-    return streak;
+    return cacheSet(cacheKey, streak);
 }
 
 // ── Overall streak ────────────────────────────────────────────────────────────
 // Count consecutive days where at least one habit (any habit) was logged.
 
 export async function getOverallStreak(userId: string): Promise<number> {
-    const { data, error } = await supabase
-        .from('habit_logs')
-        .select('completed_at')
-        .eq('user_id', userId)
-        .order('completed_at', { ascending: false });
+    const cacheKey = `overall-streak:${userId}`;
+    const cached = cacheGet(cacheKey);
+    if (cached !== null) return cached;
 
-    if (error || !data || data.length === 0) return 0;
+    const [{ data: firstHabit }, { data: userRow }] = await Promise.all([
+        supabase
+            .from('habits')
+            .select('created_at')
+            .eq('user_id', userId)
+            .order('created_at', { ascending: true })
+            .limit(1)
+            .maybeSingle(),
+        supabase
+            .from('users')
+            .select('created_at')
+            .eq('id', userId)
+            .maybeSingle(),
+    ]);
 
-    const logDays = new Set(
-        data.map((log: { completed_at: string }) =>
-            localDayKey(log.completed_at)
-        )
-    );
-
-    let streak = 0;
-    const today = startOfLocalDay(new Date());
-    for (let i = 0; i < 365; i++) {
-        const day = new Date(today);
-        day.setDate(day.getDate() - i);
-        if (logDays.has(localDayKey(day))) {
-            streak++;
-        } else {
-            break;
-        }
-    }
-    return streak;
+    const startAt = firstHabit?.created_at ?? userRow?.created_at;
+    if (!startAt) return cacheSet(cacheKey, 0);
+    return cacheSet(cacheKey, daysSinceLocalDate(startAt));
 }
 
 // ── Days since account creation ───────────────────────────────────────────────
 
 export function getDaySince(createdAt: string): number {
-    const created = new Date(createdAt);
-    const now = new Date();
-    return Math.max(
-        1,
-        Math.floor((now.getTime() - created.getTime()) / (1000 * 60 * 60 * 24)) + 1
-    );
+    return daysSinceLocalDate(createdAt);
 }

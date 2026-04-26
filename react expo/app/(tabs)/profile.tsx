@@ -6,6 +6,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useFocusEffect } from '@react-navigation/native';
 import { supabase } from '../../lib/supabase';
+import { readScreenCache, writeScreenCache } from '../../lib/screenCache';
 import {
   getAvatarState,
   getCompositeScore,
@@ -55,37 +56,37 @@ const FALLBACK: ProfileData = {
   compositeScore: 50, streak: 0, avatarState: 'healthy', habitCount: 0,
 };
 
+const PROFILE_CACHE_KEY = 'cache:profile-data:v1';
+const PROFILE_CACHE_TTL_MS = 5 * 60 * 1000;
+
 export default function ProfileScreen() {
   const [profile, setProfile] = useState<ProfileData>(FALLBACK);
-  const fetchedRef = useRef(false);
+  const [loading, setLoading] = useState(true);
+  const hydratedFromCache = useRef(false);
   const pressAnim = useRef(new Animated.Value(0)).current;
 
-  useFocusEffect(
-    useCallback(() => {
-      setTabAccentMode('blue');
-    }, [])
-  );
-
-  const loadProfile = useCallback(async () => {
+  const loadProfile = useCallback(async (silent = false) => {
+    if (!silent) setLoading(true);
     try {
       const { data: { session } } = await supabase.auth.getSession();
       if (!session?.user) return;
       const userId = session.user.id;
       const email = session.user.email ?? '';
 
-      const { data: userRow } = await supabase
-        .from('users')
-        .select('username, total_xp')
-        .eq('id', userId)
-        .single();
+      const [{ data: userRow }, { data: habits }] = await Promise.all([
+        supabase
+          .from('users')
+          .select('username, total_xp')
+          .eq('id', userId)
+          .single(),
+        supabase
+          .from('habits')
+          .select('habit_id_key')
+          .eq('user_id', userId),
+      ]);
 
       const totalXp: number = userRow?.total_xp ?? 0;
       const username: string = userRow?.username ?? 'Adventurer';
-
-      const { data: habits } = await supabase
-        .from('habits')
-        .select('habit_id_key')
-        .eq('user_id', userId);
 
       const habitCount = new Set(
         (habits ?? [])
@@ -98,7 +99,7 @@ export default function ProfileScreen() {
         getOverallStreak(userId),
       ]);
 
-      setProfile({
+      const nextProfile: ProfileData = {
         username, email,
         level: getLevel(totalXp),
         levelXpCurrent: getLevelXpCurrent(totalXp),
@@ -107,21 +108,49 @@ export default function ProfileScreen() {
         streak,
         avatarState: getAvatarState(compositeScore),
         habitCount,
-      });
+      };
+
+      setProfile(nextProfile);
+      hydratedFromCache.current = true;
+      await writeScreenCache(PROFILE_CACHE_KEY, nextProfile);
     } catch (err) {
       console.warn('[profile] loadProfile error:', err);
+    } finally {
+      if (!silent) setLoading(false);
     }
   }, []);
 
   useEffect(() => {
-    if (fetchedRef.current) return;
-    fetchedRef.current = true;
-    loadProfile();
+    const hydrate = async () => {
+      const cached = await readScreenCache<ProfileData>(PROFILE_CACHE_KEY, PROFILE_CACHE_TTL_MS);
+      if (!cached) {
+        void loadProfile(false);
+        return;
+      }
+      setProfile(cached);
+      setLoading(false);
+      hydratedFromCache.current = true;
+      void loadProfile(true);
+    };
+    void hydrate();
   }, [loadProfile]);
 
+  useFocusEffect(
+    useCallback(() => {
+      setTabAccentMode('blue');
+      void loadProfile(hydratedFromCache.current);
+    }, [loadProfile])
+  );
+
   const handleLogout = async () => {
-    await AsyncStorage.removeItem('onboarded');
-    await AsyncStorage.removeItem('selectedHabitSlots');
+    await AsyncStorage.multiRemove([
+      'onboarded',
+      'selectedHabitSlots',
+      'cache:home-data:v1',
+      'cache:profile-data:v1',
+      'cache:map-habit-slots:v1',
+      'cache:friends-summaries:v1',
+    ]);
     await supabase.auth.signOut();
   };
 
@@ -139,7 +168,11 @@ export default function ProfileScreen() {
           <VQCard>
             <View style={{ alignItems: 'center', gap: 12, paddingVertical: 8 }}>
               <View style={{ width: 110, height: 110, borderRadius: 55, alignItems: 'center', justifyContent: 'center', backgroundColor: UI.surface.raised, overflow: 'hidden', borderWidth: 1.5, borderColor: UI.border.base }}>
-                <Image source={PANDA_GIF[profile.avatarState]} style={{ width: 200, height: 200, marginTop: 80 }} contentFit="contain" />
+                {loading ? (
+                  <Ionicons name="reload" size={20} color={UI.text.soft} />
+                ) : (
+                  <Image source={PANDA_GIF[profile.avatarState]} style={{ width: 200, height: 200, marginTop: 80 }} contentFit="contain" />
+                )}
               </View>
               <View style={{ alignItems: 'center', gap: 4 }}>
                 <H2>{profile.username.split(' ')[0]}</H2>

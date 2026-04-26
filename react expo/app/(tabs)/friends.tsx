@@ -1,4 +1,3 @@
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Image } from 'expo-image';
 import { Ionicons } from '@expo/vector-icons';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -7,7 +6,8 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useFocusEffect } from '@react-navigation/native';
 import Svg, { Path } from 'react-native-svg';
 import { supabase } from '../../lib/supabase';
-import { getAvatarState, getCompositeScore, getHabitScore, getHabitStreak, getLevel, getOverallStreak } from '../../lib/scoreEngine';
+import { readScreenCache, writeScreenCache } from '../../lib/screenCache';
+import { getAvatarState, getCompositeScore, getDaySince, getLevel, getOverallStreak } from '../../lib/scoreEngine';
 import Blob from '../../src/Blob';
 import { BackButton, Eyebrow, H1, H3, SectionDivider, Small, SpeechBubble, StatePill, UI, VQButton, WaterBg, WorldBg } from '../../src/Components';
 import Island from '../../src/Island';
@@ -67,6 +67,12 @@ const STATE_LABEL: Record<AvatarState, string> = {
   sick:     'Falling Behind',
   critical: 'Struggling',
 };
+const FRIENDS_CACHE_KEY = 'cache:friends-summaries:v1';
+const FRIENDS_CACHE_TTL_MS = 5 * 60 * 1000;
+
+function visitCacheKey(friendId: string): string {
+  return `cache:friend-visit:${friendId}:v1`;
+}
 
 type FriendshipStatus = 'accepted' | 'pending' | 'declined';
 
@@ -102,6 +108,7 @@ type SearchUser = FriendSummary & {
 type VisitHabit = {
   id: string;
   key: string;
+  createdAt?: string;
   label: string;
   state: AvatarState;
   locked: boolean;
@@ -209,13 +216,34 @@ function dayKeysEndingToday(numDays: number): string[] {
   });
 }
 
-function buildVisitPattern(logDayKeys: Set<string>): VisitDayCell[] {
-  const last30 = dayKeysEndingToday(30).reverse();
+function dayKeysFromStart(startAt: string): string[] {
+  const keys: string[] = [];
+  const start = new Date(startAt);
+  start.setHours(0, 0, 0, 0);
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  while (start.getTime() <= today.getTime()) {
+    keys.push(localDayKey(start));
+    start.setDate(start.getDate() + 1);
+  }
+  return keys;
+}
+
+function buildVisitPattern(logDayKeys: Set<string>, startAt: string): VisitDayCell[] {
+  const allDays = dayKeysFromStart(startAt);
   const todayKey = localDayKey(new Date());
-  return last30.map((dayKey) => ({
+  return allDays.map((dayKey) => ({
     status: logDayKeys.has(dayKey) ? 'hit' : 'missed',
     isToday: dayKey === todayKey,
   }));
+}
+
+function scoreFromLogDays(logDayKeys: Set<string>): number {
+  const recentDayKeys = new Set(dayKeysEndingToday(3));
+  const completedRecentDays = Array.from(logDayKeys).filter((dayKey) =>
+    recentDayKeys.has(dayKey)
+  ).length;
+  return Math.round((Math.min(completedRecentDays, 3) / 3) * 100);
 }
 
 function daysAgoFromKey(dayKey: string): number {
@@ -235,16 +263,13 @@ function buildVisitMainStat(habitKey: string, weekCount: number): Pick<VisitHabi
   return { stat: String(weekCount), unit: 'logs this week', goal: '7 / week' };
 }
 
-async function buildVisitHabitDetail(habitRowId: string, habitKey: string): Promise<VisitHabitDetail> {
-  const thirtyDaysAgo = new Date();
-  thirtyDaysAgo.setHours(0, 0, 0, 0);
-  thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 29);
-
+async function buildVisitHabitDetail(habitRowId: string, habitKey: string, createdAt?: string): Promise<VisitHabitDetail> {
+  const startAt = createdAt ?? new Date().toISOString();
   const { data: logs, error } = await supabase
     .from('habit_logs')
     .select('completed_at, verified_by, xp_awarded')
     .eq('habit_id', habitRowId)
-    .gte('completed_at', thirtyDaysAgo.toISOString())
+    .gte('completed_at', new Date(startAt).toISOString())
     .order('completed_at', { ascending: false });
 
   if (error) {
@@ -273,15 +298,13 @@ async function buildVisitHabitDetail(habitRowId: string, habitKey: string): Prom
       ? `Last completed ${daysAgoFromKey(latestKey)} day${daysAgoFromKey(latestKey) === 1 ? '' : 's'} ago.`
       : 'No check-ins yet for this island.';
 
-  const [score, streak] = await Promise.all([
-    getHabitScore(habitRowId),
-    getHabitStreak(habitRowId),
-  ]);
+  const score = scoreFromLogDays(logDayKeys);
+  const streak = getDaySince(startAt);
 
   return {
     ...buildVisitMainStat(habitKey, weekCount),
     streak,
-    pattern: buildVisitPattern(logDayKeys),
+    pattern: buildVisitPattern(logDayKeys, startAt),
     todayLog,
     todayXp,
     score,
@@ -306,7 +329,7 @@ function FriendIslandDetail({
           <BackButton onPress={onBack} />
           <View style={{ flex: 1 }}>
             <H3>{habit.label}</H3>
-            <Small>Friend island detail</Small>
+            <Small>Island detail</Small>
           </View>
           <StatePill state={habit.state} />
         </View>
@@ -314,11 +337,11 @@ function FriendIslandDetail({
         {/* Island hero + cards — all scroll together */}
         <ScrollView style={{ flex: 1 }} contentContainerStyle={{ padding: 16, gap: 10, paddingBottom: 60 }}>
           <View style={{ alignItems: 'center', marginBottom: 36 }}>
-            <View style={{ position: 'relative', alignItems: 'center' }}>
-              <MapIslandArt type={islandType} habitKey={habit.key} state={habit.state} scale={4} locked={habit.locked} />
-              <View style={{ position: 'absolute', bottom: 0, left: 0, right: 0, alignItems: 'center', zIndex: 2 }}>
+            <View style={{ alignItems: 'center' }}>
+              <View style={{ marginBottom: -58, zIndex: 2 }}>
                 <Blob state={habit.state} scale={5} />
               </View>
+              <MapIslandArt type={islandType} habitKey={habit.key} state={habit.state} scale={4} locked={habit.locked} />
             </View>
           </View>
           <View style={{ backgroundColor: 'rgba(0,30,45,0.65)', borderRadius: 16, borderWidth: 1, borderColor: 'rgba(255,255,255,0.12)', padding: 20, alignItems: 'center', gap: 6 }}>
@@ -337,7 +360,7 @@ function FriendIslandDetail({
                 {habit.detail?.streak ?? 0} Day Streak
               </Text>
               <Text style={{ fontFamily: 'PixelifySans_400Regular', fontSize: 11, color: 'rgba(232,224,212,0.5)' }}>
-                Last 30 Days
+                Since Day 1
               </Text>
             </View>
             <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 4 }}>
@@ -920,13 +943,10 @@ export default function FriendsScreen() {
 
   // Load cached friends immediately on mount — avoids full spinner on every open
   useEffect(() => {
-    AsyncStorage.getItem('friendSummaries').then((raw) => {
-      if (!raw) return;
-      try {
-        const cached = JSON.parse(raw) as FriendSummary[];
-        setFriends(cached);
-        setLoading(false);
-      } catch {}
+    readScreenCache<FriendSummary[]>(FRIENDS_CACHE_KEY, FRIENDS_CACHE_TTL_MS).then((cached) => {
+      if (!cached) return;
+      setFriends(cached);
+      setLoading(false);
     });
   }, []);
 
@@ -1020,7 +1040,7 @@ export default function FriendsScreen() {
       const recent = friendSummaries.filter((friend) => recentSenderIds.includes(friend.id));
 
       setFriends(friendSummaries);
-      void AsyncStorage.setItem('friendSummaries', JSON.stringify(friendSummaries));
+      void writeScreenCache(FRIENDS_CACHE_KEY, friendSummaries);
       setPendingIncoming(incomingSummaries);
       setRecentNudges(recent);
       setUnreadNudgeCount(recentSenderIds.length);
@@ -1175,11 +1195,13 @@ export default function FriendsScreen() {
 
   const openVisit = useCallback(async (friend: FriendSummary) => {
     setVisitLoading(true);
-    setVisiting({ friend, habits: [] });
+    const cached = await readScreenCache<VisitPayload>(visitCacheKey(friend.id), FRIENDS_CACHE_TTL_MS);
+    if (cached) setVisiting(cached);
+    else setVisiting({ friend, habits: [] });
     try {
       const { data: rows } = await supabase
         .from('habits')
-        .select('id, habit_id_key, name, tier')
+        .select('id, habit_id_key, name, tier, created_at')
         .eq('user_id', friend.id)
         .order('created_at', { ascending: true });
 
@@ -1194,11 +1216,12 @@ export default function FriendsScreen() {
       const habits = await Promise.all(
         deduped.map(async (row: any) => {
           const locked = (row.tier ?? 1) >= 2;
-          const detail = locked ? undefined : await buildVisitHabitDetail(row.id, row.habit_id_key);
+          const detail = locked ? undefined : await buildVisitHabitDetail(row.id, row.habit_id_key, row.created_at);
           const score = locked ? 50 : (detail?.score ?? 0);
           return {
             id: row.id,
             key: row.habit_id_key,
+            createdAt: row.created_at,
             label: row.name,
             locked,
             detail,
@@ -1207,7 +1230,9 @@ export default function FriendsScreen() {
         })
       );
 
-      setVisiting({ friend, habits });
+      const payload = { friend, habits };
+      setVisiting(payload);
+      await writeScreenCache(visitCacheKey(friend.id), payload);
     } catch (err) {
       console.warn('[friends] openVisit error:', err);
     } finally {
