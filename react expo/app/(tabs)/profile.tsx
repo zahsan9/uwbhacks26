@@ -153,7 +153,7 @@ export default function ProfileScreen() {
           .single(),
         supabase
           .from('habits')
-          .select('habit_id_key')
+          .select('habit_id_key, tier')
           .eq('user_id', userId),
       ]);
 
@@ -162,8 +162,10 @@ export default function ProfileScreen() {
 
       const habitCount = new Set(
         (habits ?? [])
+          .filter((habit: { habit_id_key: string; tier: number | null }) =>
+            (habit.tier ?? 1) < 2 && Boolean(habit.habit_id_key)
+          )
           .map((habit: { habit_id_key: string }) => habit.habit_id_key)
-          .filter(Boolean)
       ).size;
 
       const [compositeScore, streak] = await Promise.all([
