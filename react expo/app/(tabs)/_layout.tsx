@@ -1,6 +1,7 @@
 import { Tabs } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
-import { Text, View } from 'react-native';
+import { useEffect, useRef } from 'react';
+import { Animated, Easing, Text, View } from 'react-native';
 import { useTabAccentMode } from '../../src/tabAccent';
 import { VQ } from '../../src/theme';
 
@@ -21,10 +22,29 @@ function TabIcon({
   const inactive = blue ? 'rgba(207,234,242,0.35)' : 'rgba(232,224,212,0.35)';
   const activeBg = blue ? 'rgba(234,228,218,0.94)' : 'rgba(232,224,212,0.14)';
   const activeFg = blue ? VQ.midnightSoft : active;
+  const progress = useRef(new Animated.Value(focused ? 1 : 0)).current;
+
+  useEffect(() => {
+    Animated.timing(progress, {
+      toValue: focused ? 1 : 0,
+      duration: 220,
+      easing: Easing.out(Easing.cubic),
+      useNativeDriver: false,
+    }).start();
+  }, [focused, progress]);
+
+  const bgOpacity = progress.interpolate({
+    inputRange: [0, 1],
+    outputRange: [0, 1],
+  });
+  const borderOpacity = progress.interpolate({
+    inputRange: [0, 1],
+    outputRange: [0, 1],
+  });
 
   return (
     <View style={{ width: 66, alignItems: 'center', justifyContent: 'center', gap: 4, transform: [{ translateY: 2 }] }}>
-      <View
+      <Animated.View
         style={{
           minWidth: 44,
           height: 34,
@@ -32,28 +52,51 @@ function TabIcon({
           borderRadius: 12,
           alignItems: 'center',
           justifyContent: 'center',
-          backgroundColor: focused ? activeBg : 'transparent',
-          borderWidth: focused ? 1 : 0,
-          borderColor: focused ? 'rgba(207,234,242,0.18)' : 'transparent',
+          backgroundColor: 'transparent',
         }}
       >
+        <Animated.View
+          pointerEvents="none"
+          style={{
+            position: 'absolute',
+            inset: 0,
+            borderRadius: 12,
+            backgroundColor: activeBg,
+            opacity: bgOpacity,
+          }}
+        />
         <Ionicons
           name={focused ? name : `${name}-outline` as IoniconName}
           size={18}
           color={focused ? activeFg : inactive}
         />
-      </View>
-      <Text
+        <Animated.View
+          pointerEvents="none"
+          style={{
+            position: 'absolute',
+            inset: 0,
+            borderRadius: 12,
+            borderWidth: 1,
+            borderColor: 'rgba(207,234,242,0.18)',
+            opacity: borderOpacity,
+          }}
+        />
+      </Animated.View>
+      <Animated.Text
         style={{
           fontFamily: 'PixelifySans_600SemiBold',
           fontSize: 9,
           letterSpacing: 1,
           textTransform: 'uppercase',
           color: focused ? active : inactive,
+          opacity: progress.interpolate({
+            inputRange: [0, 1],
+            outputRange: [0.82, 1],
+          }),
         }}
       >
         {label}
-      </Text>
+      </Animated.Text>
     </View>
   );
 }
