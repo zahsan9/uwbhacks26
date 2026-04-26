@@ -122,11 +122,13 @@ export async function getHabitDaysMissed(habitId: string, habitCreatedAt: string
     return cacheSet(cacheKey, missed);
 }
 
-export function getHabitStateFromMisses(daysMissed: number): AvatarState {
-    if (daysMissed <= 0) return 'thriving';
-    if (daysMissed === 1) return 'healthy';
-    if (daysMissed === 2) return 'sick';
-    return 'critical';
+export function getHabitState(daysMissed: number, streak: number): AvatarState {
+    // Negative: scale by days missed
+    if (daysMissed >= 2) return 'critical';
+    if (daysMissed === 1) return 'sick';
+    // Positive: scale by consecutive streak
+    if (streak >= 7) return 'thriving';
+    return 'healthy';  // day 1 or short streak — shows as "Stable"
 }
 
 // ── Per-habit score ───────────────────────────────────────────────────────────

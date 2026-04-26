@@ -11,7 +11,8 @@ import { setTabAccentMode, useTabAccentMode } from '../../src/tabAccent';
 import {
   getAvatarState,
   getHabitDaysMissed,
-  getHabitStateFromMisses,
+  getHabitState,
+  getHabitStreak,
   getCompositeScore,
   getDaySince,
   getHabitScore,
@@ -195,15 +196,16 @@ export default function LandingScreen() {
         uniqueHabitRows.map(async (h: { id: string; name: string; habit_id_key: string; is_healthkit: boolean; tier: number; created_at?: string }) => {
           const locked = (h.tier ?? 1) >= 2;
           const createdAt = h.created_at ?? userRow?.created_at ?? new Date().toISOString();
-          const daysMissed = locked ? 0 : await getHabitDaysMissed(h.id, createdAt);
-          const streakValue = locked ? 0 : getDaySince(createdAt);
+          const [daysMissed, streak] = locked
+            ? [0, 0]
+            : await Promise.all([getHabitDaysMissed(h.id, createdAt), getHabitStreak(h.id)]);
           return {
             id: h.id,
             name: HABIT_DISPLAY_NAME[h.habit_id_key] ?? h.name,
             habitIdKey: h.habit_id_key,
             icon: HABIT_ICON[h.habit_id_key] ?? '❓',
-            state: locked ? 'sick' as AvatarState : getHabitStateFromMisses(daysMissed),
-            streak: streakValue,
+            state: locked ? 'sick' as AvatarState : getHabitState(daysMissed, streak),
+            streak: locked ? 0 : getDaySince(createdAt),
             locked,
           } satisfies LiveHabit;
         })
