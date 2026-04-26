@@ -33,6 +33,8 @@ const HABIT_PNG: Record<string, any> = {
   sleep:      require('../../assets/sleep_island.png'),
   screen:     require('../../assets/screen_island.png'),
   gym:        require('../../assets/workout_island-removebg-preview.png'),
+  running:    require('../../assets/running_pixel-removebg-preview.png'),
+  reading:    require('../../assets/pixel_art_large-removebg-preview.png'),
   meditation: require('../../assets/FINAL_HOTSPRING_MEDITATION-removebg-preview.png'),
 };
 const HABIT_DISPLAY_NAME: Record<string, string> = {

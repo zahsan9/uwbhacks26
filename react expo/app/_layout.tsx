@@ -10,8 +10,9 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import { Asset } from "expo-asset";
 import { Stack, usePathname } from "expo-router";
 import { useEffect, useState } from "react";
-import { View } from "react-native";
+import { AppState, View } from "react-native";
 import { supabase } from "../lib/supabase";
+import { syncHealthKitHabitsForCurrentUser } from "../src/healthkit";
 import OnboardingView from "../src/Onboarding";
 
 export default function RootLayout() {
@@ -66,6 +67,18 @@ export default function RootLayout() {
     ).downloadAsync();
     void Asset.fromModule(require("../assets/icon_apple.png")).downloadAsync();
     void Asset.fromModule(require("../assets/icon_google.png")).downloadAsync();
+  }, []);
+
+  useEffect(() => {
+    void syncHealthKitHabitsForCurrentUser();
+
+    const subscription = AppState.addEventListener("change", (nextState) => {
+      if (nextState === "active") {
+        void syncHealthKitHabitsForCurrentUser();
+      }
+    });
+
+    return () => subscription.remove();
   }, []);
 
   if (!fontsLoaded || onboarded === null)

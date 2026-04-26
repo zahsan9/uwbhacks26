@@ -1,10 +1,9 @@
-import { BackButton, Body, H2, VQButton, WorldBg } from "@/Components";
+import { BackButton, Body, H2, VQButton, WorldBg, UI } from "@/Components";
 import { supabase } from "../lib/supabase";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useEffect, useState } from "react";
 import { ActivityIndicator, Pressable, ScrollView, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { UI } from "@/Components";
 import { VQ } from "@/theme";
 
 interface HabitOption {
@@ -28,12 +27,14 @@ export default function ManualLogScreen() {
       const { data: { session } } = await supabase.auth.getSession();
       if (!session) { router.replace("/(tabs)"); return; }
 
-      const query = supabase
+      let query = supabase
         .from("habits")
         .select("id, name, habit_id_key")
         .eq("user_id", session.user.id);
 
-      if (habitIds.length > 0) query.in("habit_id_key", habitIds);
+      if (habitIds.length > 0) {
+        query = query.in("habit_id_key", habitIds);
+      }
 
       const { data } = await query;
       setHabits(data ?? []);
@@ -45,32 +46,51 @@ export default function ManualLogScreen() {
   async function handleLog() {
     if (!selected) return;
     setSaving(true);
-    const habit = habits.find(h => h.id === selected);
-    if (!habit) return;
+    try {
+      const habit = habits.find(h => h.id === selected);
+      if (!habit) { setSaving(false); return; }
 
-    const { data: { session } } = await supabase.auth.getSession();
-    if (!session) { router.replace("/(tabs)"); return; }
-    const userId = session.user.id;
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) { router.replace("/(tabs)"); return; }
+      const userId = session.user.id;
 
-    await supabase.from("habit_logs").insert({
-      habit_id: habit.id,
-      user_id: userId,
-      verified_by: "manual",
-      confidence: 0,
-      xp_awarded: 25,
-    });
+      const { data: userRow } = await supabase
+        .from("users")
+        .select("total_xp")
+        .eq("id", userId)
+        .single();
 
-    const { data: logs } = await supabase
-      .from("habit_logs")
-      .select("xp_awarded")
-      .eq("user_id", userId);
+      const { error: logErr } = await supabase.from("habit_logs").insert({
+        habit_id: habit.id,
+        user_id: userId,
+        verified_by: "manual",
+        confidence: 0,
+        xp_awarded: 25,
+      });
 
-    const newXp = (logs ?? []).reduce(
-      (sum: number, l: { xp_awarded: number | null }) => sum + (l.xp_awarded ?? 0), 0
-    );
-    await supabase.from("users").update({ total_xp: newXp }).eq("id", userId);
+      if (logErr) {
+        console.warn("[manual-log] habit_logs insert error:", logErr.message);
+        setSaving(false);
+        return;
+      }
 
-    router.replace("/(tabs)");
+      const newXp = (userRow?.total_xp ?? 0) + 25;
+      const { error: xpErr } = await supabase
+        .from("users")
+        .update({ total_xp: newXp })
+        .eq("id", userId);
+
+      if (xpErr) {
+        console.warn("[manual-log] total_xp update error:", xpErr.message);
+      } else {
+        console.log("[manual-log] logged", habit.habit_id_key, "total_xp →", newXp);
+      }
+
+      router.replace("/(tabs)");
+    } catch (err) {
+      console.warn("[manual-log] unexpected error:", err);
+      setSaving(false);
+    }
   }
 
   return (

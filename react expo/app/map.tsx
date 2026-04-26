@@ -38,6 +38,8 @@ const SLEEP_ISLAND_IMG = require("../assets/sleep_island.png");
 const SCREEN_ISLAND_IMG = require("../assets/screen_island.png");
 const MEDITATION_ISLAND_IMG = require("../assets/FINAL_HOTSPRING_MEDITATION-removebg-preview.png");
 const WORKOUT_ISLAND_IMG = require("../assets/workout_island-removebg-preview.png");
+const RUNNING_ISLAND_IMG = require("../assets/running_pixel-removebg-preview.png");
+const READING_ISLAND_IMG = require("../assets/pixel_art_large-removebg-preview.png");
 
 // Custom PNG lookup — these replace the pixel-art Island component for known habits
 const HABIT_PNG: Record<string, any> = {
@@ -46,6 +48,8 @@ const HABIT_PNG: Record<string, any> = {
   screen: SCREEN_ISLAND_IMG,
   meditation: MEDITATION_ISLAND_IMG,
   gym: WORKOUT_ISLAND_IMG,
+  running: RUNNING_ISLAND_IMG,
+  reading: READING_ISLAND_IMG,
 };
 
 const HABIT_SIZE_MULTIPLIER: Record<string, number> = {

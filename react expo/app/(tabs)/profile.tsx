@@ -1,7 +1,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Ionicons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
-import { Animated, Pressable, ScrollView, Text, View } from 'react-native';
+import { Alert, Animated, Pressable, ScrollView, Text, View } from 'react-native';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useFocusEffect } from '@react-navigation/native';
@@ -15,9 +15,14 @@ import {
   getLevelXpRequired,
   getOverallStreak,
 } from '../../lib/scoreEngine';
-import { Body, Eyebrow, H1, H2, H3, SectionDivider, Small, UI, VQCard, WorldBg } from '../../src/Components';
+import { Eyebrow, H1, H2, H3, SectionDivider, Small, UI, VQCard, WorldBg } from '../../src/Components';
 import { AvatarState, VQ } from '../../src/theme';
 import { setTabAccentMode } from '../../src/tabAccent';
+import {
+  readHealthKitSnapshotForCurrentUser,
+  requestHealthKitPermissions,
+  syncHealthKitHabitsForCurrentUser,
+} from '../../src/healthkit';
 
 const PANDA_GIF: Record<string, any> = {
   thriving: require('../../assets/cute_chubby_fat_blue_panda_round_roly-poly_body_si_happy_south.gif'),
@@ -35,6 +40,36 @@ function SettingsRow({ label, value, onPress, danger, last }: { label: string; v
         {onPress && !danger && <Ionicons name="chevron-forward" size={14} color={UI.text.soft} />}
       </View>
     </Pressable>
+  );
+}
+
+function PreferenceRow({
+  label,
+  value,
+  onPress,
+  last,
+  expanded,
+  children,
+}: {
+  label: string;
+  value: string;
+  onPress: () => void;
+  last?: boolean;
+  expanded?: boolean;
+  children?: React.ReactNode;
+}) {
+  return (
+    <View style={{ paddingVertical: 14, borderBottomWidth: last && !expanded ? 0 : 1, borderBottomColor: UI.border.soft }}>
+      <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+        <H3 style={{ flex: 1, color: '#E8E0D4' }}>{label}</H3>
+        <Pressable onPress={onPress} hitSlop={8}>
+          <View style={{ paddingHorizontal: 12, paddingVertical: 8, borderRadius: UI.radius.pill, borderWidth: 1, borderColor: UI.border.skyStrong, backgroundColor: 'rgba(158,214,223,0.08)' }}>
+            <Small style={{ color: '#E8E0D4' }}>{value}</Small>
+          </View>
+        </Pressable>
+      </View>
+      {expanded ? <View style={{ marginTop: 12, gap: 8 }}>{children}</View> : null}
+    </View>
   );
 }
 
@@ -58,12 +93,49 @@ const FALLBACK: ProfileData = {
 
 const PROFILE_CACHE_KEY = 'cache:profile-data:v1';
 const PROFILE_CACHE_TTL_MS = 5 * 60 * 1000;
+const NOTIFICATIONS_KEY = 'profile:notifications-enabled';
+const REMINDER_TIME_KEY = 'profile:daily-reminder';
+const REMINDER_OPTIONS = ['7:00 AM', '8:00 AM', '9:00 AM', '6:00 PM', '8:00 PM'] as const;
 
 export default function ProfileScreen() {
   const [profile, setProfile] = useState<ProfileData>(FALLBACK);
+  const [healthConnected, setHealthConnected] = useState(false);
+  const [healthSyncing, setHealthSyncing] = useState(false);
+  const [notificationsEnabled, setNotificationsEnabled] = useState(true);
+  const [reminderTime, setReminderTime] = useState<(typeof REMINDER_OPTIONS)[number]>('9:00 AM');
+  const [reminderMenuOpen, setReminderMenuOpen] = useState(false);
   const [loading, setLoading] = useState(true);
   const hydratedFromCache = useRef(false);
   const pressAnim = useRef(new Animated.Value(0)).current;
+
+  const refreshHealthStatus = useCallback(async () => {
+    try {
+      const summary = await readHealthKitSnapshotForCurrentUser();
+      setHealthConnected(Boolean(summary));
+    } catch (err) {
+      console.warn('[profile] refreshHealthStatus error:', err);
+      setHealthConnected(false);
+    }
+  }, []);
+
+  const loadPreferences = useCallback(async () => {
+    try {
+      const [notificationsRaw, reminderRaw] = await Promise.all([
+        AsyncStorage.getItem(NOTIFICATIONS_KEY),
+        AsyncStorage.getItem(REMINDER_TIME_KEY),
+      ]);
+
+      if (notificationsRaw !== null) {
+        setNotificationsEnabled(notificationsRaw === 'true');
+      }
+
+      if (reminderRaw && REMINDER_OPTIONS.includes(reminderRaw as (typeof REMINDER_OPTIONS)[number])) {
+        setReminderTime(reminderRaw as (typeof REMINDER_OPTIONS)[number]);
+      }
+    } catch (err) {
+      console.warn('[profile] loadPreferences error:', err);
+    }
+  }, []);
 
   const loadProfile = useCallback(async (silent = false) => {
     if (!silent) setLoading(true);
@@ -134,19 +206,95 @@ export default function ProfileScreen() {
       void loadProfile(false);
     };
     void hydrate();
-  }, [loadProfile]);
+    void refreshHealthStatus();
+    void loadPreferences();
+  }, [loadPreferences, loadProfile, refreshHealthStatus]);
 
   useFocusEffect(
     useCallback(() => {
       setTabAccentMode('blue');
       void loadProfile(hydratedFromCache.current);
-    }, [loadProfile])
+      void refreshHealthStatus();
+      void loadPreferences();
+    }, [loadPreferences, loadProfile, refreshHealthStatus])
   );
+
+  const handleHealthConnect = useCallback(async () => {
+    setHealthSyncing(true);
+    try {
+      const result = await requestHealthKitPermissions();
+      if (!result.available) {
+        const synced = await syncHealthKitHabitsForCurrentUser();
+        if (!synced) {
+          Alert.alert(
+            'Health sync not found',
+            'Open the VitaQuest Health helper app, sync Apple Health there, then come back here.',
+          );
+        } else {
+          await refreshHealthStatus();
+        }
+        return;
+      }
+
+      if (!result.authorized) {
+        Alert.alert(
+          'Health access not granted',
+          'Apple Health permission was not granted on this device.',
+        );
+        return;
+      }
+
+      await syncHealthKitHabitsForCurrentUser();
+      await refreshHealthStatus();
+    } catch (err) {
+      console.warn('[profile] handleHealthConnect error:', err);
+      Alert.alert('Health sync failed', 'We could not connect Apple Health right now.');
+    } finally {
+      setHealthSyncing(false);
+    }
+  }, [refreshHealthStatus]);
+
+  const handleManageHabits = useCallback(() => {
+    Alert.alert('Manage Habits', 'Habit management is not wired on this screen yet.');
+  }, []);
+
+  const handleExportData = useCallback(() => {
+    Alert.alert('Export Data', 'Data export is not wired yet.');
+  }, []);
+
+  const handleToggleNotifications = useCallback(async () => {
+    setReminderMenuOpen(false);
+    const nextValue = !notificationsEnabled;
+    setNotificationsEnabled(nextValue);
+    try {
+      await AsyncStorage.setItem(NOTIFICATIONS_KEY, String(nextValue));
+    } catch (err) {
+      console.warn('[profile] handleToggleNotifications error:', err);
+      setNotificationsEnabled(!nextValue);
+    }
+  }, [notificationsEnabled]);
+
+  const saveReminderTime = useCallback(async (nextValue: (typeof REMINDER_OPTIONS)[number]) => {
+    setReminderTime(nextValue);
+    setReminderMenuOpen(false);
+    try {
+      await AsyncStorage.setItem(REMINDER_TIME_KEY, nextValue);
+    } catch (err) {
+      console.warn('[profile] saveReminderTime error:', err);
+      setReminderTime(reminderTime);
+    }
+  }, [reminderTime]);
+
+  const handleChooseReminderTime = useCallback(() => {
+    setReminderMenuOpen((open) => !open);
+  }, []);
 
   const handleLogout = async () => {
     await AsyncStorage.multiRemove([
       'onboarded',
       'selectedHabitSlots',
+      NOTIFICATIONS_KEY,
+      REMINDER_TIME_KEY,
       'cache:home-data:v1',
       'cache:profile-data:v1',
       'cache:map-habit-slots:v1',
@@ -162,7 +310,7 @@ export default function ProfileScreen() {
   return (
     <WorldBg>
       <SafeAreaView style={{ flex: 1 }}>
-        <ScrollView contentContainerStyle={{ paddingHorizontal: 20, paddingTop: 16, paddingBottom: 44 }}>
+        <ScrollView contentContainerStyle={{ paddingHorizontal: 20, paddingTop: 16, paddingBottom: 170 }}>
           <H1 style={{ marginBottom: 20 }}>Profile</H1>
 
           {/* Avatar + stats */}
@@ -210,7 +358,8 @@ export default function ProfileScreen() {
           <View style={{ marginTop: 20 }}>
             <Eyebrow style={{ marginBottom: 8 }}>Health & Data</Eyebrow>
             <VQCard>
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 14, borderBottomWidth: 1, borderBottomColor: UI.border.soft }}>
+              <Pressable onPress={handleHealthConnect}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 14, borderBottomWidth: 1, borderBottomColor: UI.border.soft }}>
                 <View style={{ width: 36, height: 36, borderRadius: UI.radius.control, backgroundColor: 'rgba(220,60,60,0.15)', borderWidth: 1, borderColor: 'rgba(220,80,80,0.3)', alignItems: 'center', justifyContent: 'center' }}>
                   <Ionicons name="heart" size={18} color="#e06060" />
                 </View>
@@ -218,13 +367,16 @@ export default function ProfileScreen() {
                   <Text style={{ fontFamily: 'PixelifySans_500Medium', fontSize: 14, color: '#E8E0D4' }}>Apple Health</Text>
                   <Text style={{ fontFamily: 'PixelifySans_400Regular', fontSize: 11, color: UI.text.soft }}>Steps · Sleep · Heart Rate</Text>
                 </View>
-                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5, backgroundColor: 'rgba(110,212,163,0.12)', borderWidth: 1, borderColor: 'rgba(110,212,163,0.3)', paddingHorizontal: 10, paddingVertical: 5, borderRadius: UI.radius.pill }}>
-                  <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: 'rgba(110,212,163,0.9)' }} />
-                  <Text style={{ fontFamily: 'PixelifySans_600SemiBold', fontSize: 11, color: 'rgba(110,212,163,0.9)' }}>Connected</Text>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5, backgroundColor: healthConnected ? 'rgba(110,212,163,0.12)' : 'rgba(220,120,80,0.12)', borderWidth: 1, borderColor: healthConnected ? 'rgba(110,212,163,0.3)' : 'rgba(220,120,80,0.3)', paddingHorizontal: 10, paddingVertical: 5, borderRadius: UI.radius.pill }}>
+                  <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: healthConnected ? 'rgba(110,212,163,0.9)' : 'rgba(220,120,80,0.9)' }} />
+                  <Text style={{ fontFamily: 'PixelifySans_600SemiBold', fontSize: 11, color: healthConnected ? 'rgba(110,212,163,0.9)' : 'rgba(220,120,80,0.9)' }}>
+                    {healthSyncing ? 'Syncing' : healthConnected ? 'Connected' : 'Connect'}
+                  </Text>
                 </View>
-              </View>
-              <SettingsRow label="Manage Habits" onPress={() => {}} />
-              <SettingsRow label="Export Data" onPress={() => {}} last />
+                </View>
+              </Pressable>
+              <SettingsRow label="Manage Habits" onPress={handleManageHabits} />
+              <SettingsRow label="Export Data" onPress={handleExportData} last />
             </VQCard>
           </View>
 
@@ -232,8 +384,38 @@ export default function ProfileScreen() {
           <View style={{ marginTop: 20 }}>
             <Eyebrow style={{ marginBottom: 8 }}>Preferences</Eyebrow>
             <VQCard>
-              <SettingsRow label="Notifications" value="On" onPress={() => {}} />
-              <SettingsRow label="Daily Reminder" value="9:00 AM" onPress={() => {}} last />
+              <PreferenceRow
+                label="Notifications"
+                value={notificationsEnabled ? 'On' : 'Off'}
+                onPress={() => void handleToggleNotifications()}
+              />
+              <PreferenceRow
+                label="Daily Reminder"
+                value={reminderTime}
+                onPress={handleChooseReminderTime}
+                expanded={reminderMenuOpen}
+                last
+              >
+                {REMINDER_OPTIONS.map((option) => {
+                  const selected = option === reminderTime;
+                  return (
+                    <Pressable key={option} onPress={() => void saveReminderTime(option)}>
+                      <View style={{
+                        paddingHorizontal: 14,
+                        paddingVertical: 12,
+                        borderRadius: UI.radius.control,
+                        borderWidth: 1,
+                        borderColor: selected ? UI.border.skyStrong : UI.border.base,
+                        backgroundColor: selected ? 'rgba(158,214,223,0.14)' : 'rgba(232,224,212,0.05)',
+                      }}>
+                        <Text style={{ fontFamily: 'PixelifySans_500Medium', fontSize: 12, color: '#E8E0D4' }}>
+                          {option}
+                        </Text>
+                      </View>
+                    </Pressable>
+                  );
+                })}
+              </PreferenceRow>
             </VQCard>
           </View>
 
@@ -252,8 +434,6 @@ export default function ProfileScreen() {
               </Animated.View>
             </Pressable>
           </View>
-
-          <Body style={{ marginTop: 16, textAlign: 'center' }}>VitaQuest v1.0 · UWBHACKS 2026</Body>
         </ScrollView>
       </SafeAreaView>
     </WorldBg>

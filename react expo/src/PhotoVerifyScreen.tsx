@@ -270,6 +270,12 @@ export default function PhotoVerifyScreen({ onComplete, habitIds }: PhotoVerifyS
                         </View>
                         <View style={{ marginTop: 16, width: "100%", paddingHorizontal: 32, gap: 10 }}>
                             <VQButton label="Try again" onPress={handleRetry} />
+                            <VQButton label="Log manually" style="ghost" disabled={isSubmitting} onPress={() => {
+                                const dest = habitIds && habitIds.length > 0
+                                    ? `/manual-log?habitIds=${habitIds.join(",")}`
+                                    : "/manual-log";
+                                router.push(dest as any);
+                            }} />
                             <VQButton label="Skip" style="ghost" disabled={isSubmitting} onPress={() => {
                                 void submitResult({ verified: false, habitId: "", habitName: "", confidence: 0, isManual: false });
                             }} />

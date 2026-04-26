@@ -12,8 +12,7 @@ export interface IdentifyResult {
 // 20s covers CLIP inference (~400ms) + Gemma 4 fallback via Ollama (~5–15s on CPU)
 const TIMEOUT_MS = 20000;
 const TARGET_SIZE = 224; // CLIP ViT-B/32 input resolution
-// 0.92 quality — lower values introduce JPEG artifacts that corrupt CLIP embeddings
-const JPEG_QUALITY = 0.92;
+const JPEG_QUALITY = 0.92; // raised from 0.7 — low JPEG quality introduced artifacts that corrupt embeddings
 
 /** Maps backend habit IDs to display names */
 const HABIT_DISPLAY_NAME: Record<string, string> = {
