@@ -1333,7 +1333,9 @@ export default function FriendsScreen() {
               {searching ? (
                 <ActivityIndicator size="small" color="#D6EDF2" />
               ) : searchResults.length > 0 ? (
-                searchResults.map((user) => (
+                searchResults.map((user) => {
+                  const liveRelation = relationshipForUser(user.id);
+                  return (
                   <View key={user.id} style={{ flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 8, borderTopWidth: 1, borderTopColor: UI.border.soft }}>
                     <View style={{ width: 38, height: 38, borderRadius: 19, alignItems: 'center', justifyContent: 'center', backgroundColor: UI.surface.raised, borderWidth: 1, borderColor: UI.border.sky }}>
                       <Blob state={user.state} scale={1.5} />
@@ -1342,12 +1344,13 @@ export default function FriendsScreen() {
                       <Text style={{ fontFamily: 'PixelifySans_700Bold', fontSize: 13, color: '#E8E0D4' }}>{user.name}</Text>
                       <Text style={{ fontFamily: 'PixelifySans_400Regular', fontSize: 11, color: UI.text.soft }}>{user.email || 'No Gmail saved'}</Text>
                     </View>
-                    {user.relation === 'none' && <VQButton label="Add" onPress={() => void handleSendRequest(user.id)} />}
-                    {user.relation === 'accepted' && <Small>Friends</Small>}
-                    {user.relation === 'incoming' && <VQButton label="Accept" onPress={() => void handleRespondToRequest(user.id, true)} />}
-                    {user.relation === 'outgoing' && <Small>Pending</Small>}
+                    {liveRelation === 'none' && <VQButton label="Add" onPress={() => void handleSendRequest(user.id)} />}
+                    {liveRelation === 'accepted' && <Small>Friends</Small>}
+                    {liveRelation === 'incoming' && <VQButton label="Accept" onPress={() => void handleRespondToRequest(user.id, true)} />}
+                    {liveRelation === 'outgoing' && <Small>Pending</Small>}
                   </View>
-                ))
+                  );
+                })
               ) : searchTerm.trim().length >= 2 ? (
                 <Small>No matches yet.</Small>
               ) : (
