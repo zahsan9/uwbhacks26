@@ -56,6 +56,15 @@ create table public.nudges (
   read_at      timestamptz
 );
 
+-- HealthKit snapshots (demo helper sync)
+create table public.healthkit_snapshots (
+  email                    text primary key,
+  steps_today              integer not null default 0,
+  sleep_hours_last_night   numeric(5,2) not null default 0,
+  synced_at                timestamptz not null default now(),
+  updated_at               timestamptz not null default now()
+);
+
 -- ── Row Level Security ────────────────────────────────────────────────────────
 
 alter table public.users        enable row level security;
@@ -63,6 +72,7 @@ alter table public.habits       enable row level security;
 alter table public.habit_logs   enable row level security;
 alter table public.friendships  enable row level security;
 alter table public.nudges       enable row level security;
+alter table public.healthkit_snapshots enable row level security;
 
 -- users: own row only
 create policy "users: own row" on public.users
@@ -115,3 +125,7 @@ create policy "friendships: own rows" on public.friendships
 -- nudges: own sent/received
 create policy "nudges: own rows" on public.nudges
   for all using (auth.uid() = sender_id or auth.uid() = receiver_id);
+
+-- healthkit snapshots: demo helper app + signed-in app can read/write
+create policy "healthkit_snapshots: public demo access" on public.healthkit_snapshots
+  for all using (true) with check (true);

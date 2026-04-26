@@ -29,14 +29,13 @@ export const FRIENDS: Friend[] = [
 ];
 
 export const STARTER_HABITS = [
-  { id: 'sleep', label: 'Sleep', hint: 'Auto · HealthKit' },
-  { id: 'steps', label: 'Steps', hint: 'Auto · HealthKit' },
-  { id: 'screen', label: 'Screen time', hint: 'Auto · Screen Time' },
   { id: 'gym', label: 'Workout', hint: 'Photo verified' },
   { id: 'running', label: 'Running', hint: 'Photo verified' },
   { id: 'read', label: 'Read', hint: 'Photo verified' },
   { id: 'cooking', label: 'Cooking', hint: 'Photo verified' },
   { id: 'meditate', label: 'Meditate', hint: 'Photo verified' },
+  { id: 'sleep', label: 'Sleep', hint: 'Auto · HealthKit' },
+  { id: 'steps', label: 'Steps', hint: 'Auto · HealthKit' },
 ];
 
 export const AVATAR_NAMES = ['Mochi', 'Pebble', 'Puff', 'Dew'];

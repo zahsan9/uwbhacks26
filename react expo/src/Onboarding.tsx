@@ -383,8 +383,8 @@ function HabitsScreen({ onDone }: { onDone: () => void }) {
       const userId = session.user.id;
 
       const habitRows = selOrder.map((id, i) => {
-        const isHealthKit = id === 'sleep' || id === 'steps' || id === 'screen';
-        const hkType = id === 'sleep' ? 'sleep' : id === 'steps' ? 'steps' : id === 'screen' ? 'screentime' : null;
+        const isHealthKit = id === 'sleep' || id === 'steps';
+        const hkType = id === 'sleep' ? 'sleep' : id === 'steps' ? 'steps' : null;
         return {
           user_id: userId,
           name: HABIT_NAME_MAP[id] ?? id,
