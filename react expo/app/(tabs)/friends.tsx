@@ -1164,28 +1164,40 @@ export default function FriendsScreen() {
 
   const handleSendRequest = useCallback(async (targetId: string) => {
     if (!userId) return;
+    // Optimistic update so the button changes immediately
+    setPendingOutgoingIds((prev) => new Set([...prev, targetId]));
     try {
-      await supabase.from('friendships').insert({
-        requester_id: userId,
-        addressee_id: targetId,
-        status: 'pending',
-      });
+      // Use upsert so a previously declined request can be re-sent
+      const { error } = await supabase.from('friendships').upsert(
+        { requester_id: userId, addressee_id: targetId, status: 'pending' },
+        { onConflict: 'requester_id,addressee_id' }
+      );
+      if (error) {
+        console.warn('[friends] send request error:', error.message, error.code);
+        setPendingOutgoingIds((prev) => { const next = new Set(prev); next.delete(targetId); return next; });
+        return;
+      }
       await loadFriendsData();
       await handleSearch(searchTerm);
     } catch (err) {
       console.warn('[friends] send request error:', err);
+      setPendingOutgoingIds((prev) => { const next = new Set(prev); next.delete(targetId); return next; });
     }
   }, [handleSearch, loadFriendsData, searchTerm, userId]);
 
   const handleRespondToRequest = useCallback(async (targetId: string, accept: boolean) => {
     if (!userId) return;
     try {
-      await supabase
+      const { error } = await supabase
         .from('friendships')
         .update({ status: accept ? 'accepted' : 'declined' })
         .eq('requester_id', targetId)
         .eq('addressee_id', userId)
         .eq('status', 'pending');
+      if (error) {
+        console.warn('[friends] respond request error:', error.message, error.code);
+        return;
+      }
       await loadFriendsData();
       await handleSearch(searchTerm);
     } catch (err) {
@@ -1196,10 +1208,14 @@ export default function FriendsScreen() {
   const handleNudge = useCallback(async (friendId: string) => {
     if (!userId || nudged.has(friendId)) return;
     try {
-      await supabase.from('nudges').insert({
+      const { error } = await supabase.from('nudges').insert({
         sender_id: userId,
         receiver_id: friendId,
       });
+      if (error) {
+        console.warn('[friends] nudge error:', error.message, error.code);
+        return;
+      }
       setNudged((prev) => new Set([...prev, friendId]));
       await loadFriendsData();
     } catch (err) {
