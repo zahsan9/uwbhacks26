@@ -463,8 +463,8 @@ export default function LandingScreen() {
           }}
           style={{
             position: 'absolute',
-            bottom: 88,
-            right: 88,
+            bottom: 152,
+            right: 20,
             width: 56,
             height: 56,
             borderRadius: 28,
