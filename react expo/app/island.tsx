@@ -15,14 +15,13 @@ export default function IslandDetailScreen() {
   const meta  = islandMeta[type];
   const name  = islandName[type];
 
-  const today = 25;
-  const pattern = Array.from({ length: 30 }, (_, i) => {
-    if (i > today) return 'future';
-    if (i === today) return 'today';
-    if (type === 'walk')  return (i % 7 === 3 && i < 15) ? 'missed' : 'hit';
-    if (type === 'sleep') return (i < 18 && i % 5 === 2) ? 'partial' : 'hit';
-    return (i < 20 && i % 3 !== 0) ? 'missed' : 'hit';
-  });
+  const streak = meta.streak;
+  // Show only boxes from when the habit started — 1 box per day elapsed since day 1.
+  // For the current streak, all days are hits; the last box is today.
+  const totalDays = Math.max(streak, 1);
+  const pattern = Array.from({ length: totalDays }, (_, i) =>
+    i === totalDays - 1 ? 'today' : 'hit'
+  );
 
   const dayColor = (p: string) => ({ hit: '#6ed4a3', partial: '#ffc260', missed: '#d76060', today: '#ff8b6a', future: 'rgba(31,58,74,0.1)' }[p] ?? 'transparent');
 
@@ -36,25 +35,24 @@ export default function IslandDetailScreen() {
   return (
     <WorldBg>
       <SafeAreaView style={{ flex: 1 }}>
-        {/* Nav */}
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 14, paddingTop: 8, paddingBottom: 4 }}>
-          <BackButton onPress={() => router.back()} />
-          <H3 style={{ flex: 1 }}>{name}</H3>
-          <StatePill state={st} />
-        </View>
-
-        {/* Island hero */}
-        <View style={{ alignItems: 'center', height: 200, justifyContent: 'center' }}>
-          <View style={{ alignItems: 'center' }}>
-            <View style={{ marginBottom: -58, zIndex: 1, transform: [{ translateX: 22 }] }}>
-              <Blob state={st} scale={5} />
-            </View>
-            <Island type={type} state={st} scale={4} />
-          </View>
-        </View>
-
-        {/* Sheet */}
+        {/* Everything scrolls — nav included */}
         <ScrollView style={{ flex: 1 }} contentContainerStyle={{ padding: 16, gap: 10, paddingBottom: 44 }}>
+          {/* Nav */}
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 28 }}>
+            <BackButton onPress={() => router.back()} />
+            <H3 style={{ flex: 1 }}>{name}</H3>
+            <StatePill state={st} />
+          </View>
+
+          {/* Island hero */}
+          <View style={{ alignItems: 'center', marginBottom: 36 }}>
+            <View style={{ position: 'relative', alignItems: 'center' }}>
+              <Island type={type} state={st} scale={4} />
+              <View style={{ position: 'absolute', bottom: 0, left: 0, right: 0, alignItems: 'center', zIndex: 2 }}>
+                <Blob state={st} scale={5} />
+              </View>
+            </View>
+          </View>
           {/* Big stat */}
           <VQCard warm>
             <View style={{ alignItems: 'center', gap: 4 }}>
@@ -69,7 +67,7 @@ export default function IslandDetailScreen() {
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
                 <Text style={{ fontSize: 16 }}>🔥</Text>
                 <H3 style={{ flex: 1 }}>{meta.streak} day streak</H3>
-                <Small>last 30 days</Small>
+                <Small>since day 1</Small>
               </View>
               <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 4 }}>
                 {pattern.map((p, i) => (
@@ -77,7 +75,7 @@ export default function IslandDetailScreen() {
                 ))}
               </View>
               <View style={{ flexDirection: 'row', gap: 14 }}>
-                {[['hit','#6ed4a3'], ['partial','#ffc260'], ['missed','#d76060']] .map(([label, color]) => (
+                {[['Hit','#6ed4a3'], ['Missed','#d76060']] .map(([label, color]) => (
                   <View key={label} style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
                     <View style={{ width: 10, height: 10, backgroundColor: color }} />
                     <Small>{label}</Small>

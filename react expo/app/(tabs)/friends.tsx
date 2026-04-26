@@ -1,3 +1,4 @@
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Image } from 'expo-image';
 import { Ionicons } from '@expo/vector-icons';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -300,7 +301,8 @@ function FriendIslandDetail({
   return (
     <WaterBg>
       <SafeAreaView style={{ flex: 1 }}>
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 14, paddingTop: 8, paddingBottom: 4 }}>
+        {/* Header — locked */}
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 14, paddingTop: 8, paddingBottom: 20 }}>
           <BackButton onPress={onBack} />
           <View style={{ flex: 1 }}>
             <H3>{habit.label}</H3>
@@ -309,16 +311,16 @@ function FriendIslandDetail({
           <StatePill state={habit.state} />
         </View>
 
-        <View style={{ alignItems: 'center', height: 200, justifyContent: 'center' }}>
-          <View style={{ alignItems: 'center' }}>
-            <View style={{ marginBottom: -58, zIndex: 1, transform: [{ translateX: 22 }] }}>
-              <Blob state={habit.state} scale={5} />
+        {/* Island hero + cards — all scroll together */}
+        <ScrollView style={{ flex: 1 }} contentContainerStyle={{ padding: 16, gap: 10, paddingBottom: 60 }}>
+          <View style={{ alignItems: 'center', marginBottom: 36 }}>
+            <View style={{ position: 'relative', alignItems: 'center' }}>
+              <MapIslandArt type={islandType} habitKey={habit.key} state={habit.state} scale={4} locked={habit.locked} />
+              <View style={{ position: 'absolute', bottom: 0, left: 0, right: 0, alignItems: 'center', zIndex: 2 }}>
+                <Blob state={habit.state} scale={5} />
+              </View>
             </View>
-            <MapIslandArt type={islandType} habitKey={habit.key} state={habit.state} scale={4} locked={habit.locked} />
           </View>
-        </View>
-
-        <ScrollView style={{ flex: 1 }} contentContainerStyle={{ padding: 16, gap: 10, paddingBottom: 44 }}>
           <View style={{ backgroundColor: 'rgba(0,30,45,0.65)', borderRadius: 16, borderWidth: 1, borderColor: 'rgba(255,255,255,0.12)', padding: 20, alignItems: 'center', gap: 6 }}>
             <Text style={{ fontFamily: 'PixelifySans_700Bold', fontSize: 38, color: '#E8E0D4', lineHeight: 42 }}>
               {habit.detail?.stat ?? '—'}
@@ -916,6 +918,18 @@ export default function FriendsScreen() {
 
   const pendingCount = pendingIncoming.length + unreadNudgeCount;
 
+  // Load cached friends immediately on mount — avoids full spinner on every open
+  useEffect(() => {
+    AsyncStorage.getItem('friendSummaries').then((raw) => {
+      if (!raw) return;
+      try {
+        const cached = JSON.parse(raw) as FriendSummary[];
+        setFriends(cached);
+        setLoading(false);
+      } catch {}
+    });
+  }, []);
+
   const loadFriendsData = useCallback(async () => {
     setLoading(true);
     try {
@@ -1006,6 +1020,7 @@ export default function FriendsScreen() {
       const recent = friendSummaries.filter((friend) => recentSenderIds.includes(friend.id));
 
       setFriends(friendSummaries);
+      void AsyncStorage.setItem('friendSummaries', JSON.stringify(friendSummaries));
       setPendingIncoming(incomingSummaries);
       setRecentNudges(recent);
       setUnreadNudgeCount(recentSenderIds.length);
