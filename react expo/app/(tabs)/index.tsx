@@ -455,6 +455,33 @@ export default function LandingScreen() {
 
         </ScrollView>
 
+        {/* Manual log FAB */}
+        <Pressable
+          onPress={() => {
+            const ids = data.photoHabitIds.join(',');
+            router.push(ids ? `/manual-log?habitIds=${ids}` as any : '/manual-log' as any);
+          }}
+          style={{
+            position: 'absolute',
+            bottom: 88,
+            right: 88,
+            width: 56,
+            height: 56,
+            borderRadius: 28,
+            backgroundColor: '#EAE4DA',
+            borderWidth: 1,
+            borderColor: accent === 'blue' ? 'rgba(207,234,242,0.24)' : 'rgba(232,224,212,0.16)',
+            alignItems: 'center',
+            justifyContent: 'center',
+            shadowColor: accent === 'blue' ? VQ.midnight : VQ.tea,
+            shadowOffset: { width: 0, height: 4 },
+            shadowOpacity: 0.5,
+            shadowRadius: 0
+          }}
+        >
+          <Ionicons name="pencil" size={20} color={VQ.midnightSoft} />
+        </Pressable>
+
         {/* Camera FAB — sits above the 72px absolute tab bar */}
         <Pressable
           onPress={handleCameraFAB}

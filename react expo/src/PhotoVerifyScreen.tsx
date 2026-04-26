@@ -256,6 +256,14 @@ export default function PhotoVerifyScreen({ onComplete, habitIds }: PhotoVerifyS
                                 }} />
                             </View>
                         </View>
+                        <View style={{ marginTop: 12, width: "100%", paddingHorizontal: 32 }}>
+                            <VQButton label="Log manually" style="ghost" disabled={isSubmitting} onPress={() => {
+                                const dest = habitIds && habitIds.length > 0
+                                    ? `/manual-log?habitIds=${habitIds.join(",")}`
+                                    : "/manual-log";
+                                router.push(dest as any);
+                            }} />
+                        </View>
                     </View>
                 )}
 
