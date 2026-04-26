@@ -338,7 +338,7 @@ function FriendIslandDetail({
         <ScrollView style={{ flex: 1 }} contentContainerStyle={{ padding: 16, gap: 10, paddingBottom: 60 }}>
           <View style={{ alignItems: 'center', marginBottom: 36 }}>
             <View style={{ alignItems: 'center' }}>
-              <View style={{ marginBottom: -48, zIndex: 2 }}>
+              <View style={{ marginBottom: -72, zIndex: 2, transform: [{ translateY: 18 }] }}>
                 <Blob state={habit.state} scale={5} />
               </View>
               <MapIslandArt type={islandType} habitKey={habit.key} state={habit.state} scale={4} locked={habit.locked} />
@@ -585,8 +585,11 @@ function FriendVisit({
   }, [pandaPathT, pandaTX, pandaTY]);
 
   const openIsland = useCallback((slotKey: string, habitId: string) => {
+    if (isAnimating.current) return;
     const pos = FRIEND_POSITIONS[slotKey];
     if (!pos) return;
+    overlayOpa.stopAnimation();
+    overlayOpa.setValue(0);
     dragX.setValue(0);
     dragY.setValue(0);
     dragStart.current = { x: 0, y: 0 };
@@ -607,21 +610,26 @@ function FriendVisit({
       animatePandaAlongRoute(route, 1, 1900),
       Animated.timing(mapTX, { toValue: panX * 0.4, duration: 1900, easing: Easing.out(Easing.quad), useNativeDriver: true }),
       Animated.timing(mapTY, { toValue: panY * 0.4, duration: 1900, easing: Easing.out(Easing.quad), useNativeDriver: true }),
-    ]).start(() => {
+    ]).start(({ finished }) => {
+      if (!finished) {
+        isAnimating.current = false;
+        return;
+      }
       stopWalking();
       Animated.parallel([
         Animated.timing(mapScale, { toValue: scale, duration: 1100, easing: Easing.in(Easing.quad), useNativeDriver: true }),
         Animated.timing(mapTX, { toValue: panX, duration: 1100, useNativeDriver: true }),
         Animated.timing(mapTY, { toValue: panY, duration: 1100, useNativeDriver: true }),
-        Animated.sequence([
-          Animated.delay(600),
-          Animated.timing(overlayOpa, { toValue: 1, duration: 500, useNativeDriver: true }),
-        ]),
-      ]).start();
+        Animated.timing(overlayOpa, { toValue: 1, duration: 320, useNativeDriver: true }),
+      ]).start(({ finished: detailFinished }) => {
+        if (detailFinished) overlayOpa.setValue(1);
+        isAnimating.current = false;
+      });
     });
   }, [animatePandaAlongRoute, dragX, dragY, mapScale, mapTX, mapTY, overlayOpa, walkScaleX, walkOpa, idleOpa]);
 
   const closeIsland = useCallback(() => {
+    isAnimating.current = true;
     const route = lastRoute.current;
     startWalking(lastIslandX.current >= FRIEND_POSITIONS.home.x);
     Animated.parallel([
@@ -642,6 +650,7 @@ function FriendVisit({
       ]),
     ]).start(() => {
       stopWalking();
+      overlayOpa.setValue(0);
       setOverlayIsland(null);
       setSelectedHabitId(null);
       isAnimating.current = false;

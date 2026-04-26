@@ -362,7 +362,7 @@ function IslandDetail({
           {/* Island art */}
           <View style={{ alignItems: "center", marginBottom: 6, marginTop: 8 }}>
             <View style={{ alignItems: "center" }}>
-              <View style={{ marginBottom: -48, zIndex: 1 }}>
+              <View style={{ marginBottom: -72, zIndex: 1, transform: [{ translateY: 18 }] }}>
                 <Blob state={state} scale={5} />
               </View>
               {habitKey && HABIT_PNG[habitKey] ? (
@@ -652,8 +652,11 @@ export default function MapScreen() {
   const lastIslandX = useRef(home.x);
 
   const openIsland = (slotKey: string) => {
+    if (isAnimating.current) return;
     const pos = POSITIONS[slotKey];
     if (!pos) return;
+    overlayOpa.stopAnimation();
+    overlayOpa.setValue(0);
     dragX.setValue(0);
     dragY.setValue(0);
     dragStart.current = { x: 0, y: 0 };
@@ -673,22 +676,27 @@ export default function MapScreen() {
       animatePandaAlongRoute(route, 1, 1900),
       Animated.timing(mapTX, { toValue: panX * 0.4, duration: 1900, easing: Easing.out(Easing.quad), useNativeDriver: true }),
       Animated.timing(mapTY, { toValue: panY * 0.4, duration: 1900, easing: Easing.out(Easing.quad), useNativeDriver: true }),
-    ]).start(() => {
+    ]).start(({ finished }) => {
+      if (!finished) {
+        isAnimating.current = false;
+        return;
+      }
       stopWalking();
       // Phase 2: zoom into island
       Animated.parallel([
         Animated.timing(mapScale, { toValue: s,    duration: 1100, easing: Easing.in(Easing.quad), useNativeDriver: true }),
         Animated.timing(mapTX,    { toValue: panX, duration: 1100, useNativeDriver: true }),
         Animated.timing(mapTY,    { toValue: panY, duration: 1100, useNativeDriver: true }),
-        Animated.sequence([
-          Animated.delay(600),
-          Animated.timing(overlayOpa, { toValue: 1, duration: 500, useNativeDriver: true }),
-        ]),
-      ]).start();
+        Animated.timing(overlayOpa, { toValue: 1, duration: 320, useNativeDriver: true }),
+      ]).start(({ finished: detailFinished }) => {
+        if (detailFinished) overlayOpa.setValue(1);
+        isAnimating.current = false;
+      });
     });
   };
 
   const closeIsland = () => {
+    isAnimating.current = true;
     const route = lastRoute.current;
     startWalking(lastIslandX.current >= home.x);
 
@@ -710,6 +718,7 @@ export default function MapScreen() {
       ]),
     ]).start(() => {
       stopWalking();
+      overlayOpa.setValue(0);
       setOverlayIsland(null);
       isAnimating.current = false;
     });
