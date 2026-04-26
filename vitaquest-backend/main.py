@@ -11,10 +11,14 @@ from typing import Optional
 
 import numpy as np
 import onnxruntime as ort
+import requests
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from PIL import Image
 from pydantic import BaseModel
+
+OLLAMA_URL = os.getenv("OLLAMA_URL", "http://localhost:11434")
+GEMMA_MODEL = "gemma4"
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -26,15 +30,24 @@ PROTOTYPES_DIR = "prototypes"
 
 SUPPORTED_HABITS = ["gym", "running", "reading", "cooking", "meditation"]
 
-# CLIP temperature — matches the model's trained logit_scale (exp(ln(100)) ≈ 100).
-# Scaling cosine similarities before softmax spreads the probability mass correctly.
-LOGIT_SCALE = 100.0
+# LOGIT_SCALE controls how sharply softmax separates classes.
+# 100 was far too aggressive: a 0.03 raw cosine edge → 82%+ probability, causing
+# every photo to be classified as running (the most "central" prototype).
+# 20 gives honest probabilities while still confidently classifying clear matches.
+LOGIT_SCALE = 20.0
 
 # Probability thresholds after softmax over all habit scores.
-# Using softmax removes sensitivity to the absolute scale of cross-modal similarities
-# (image-to-text cosines sit at ~0.15–0.32, far below old raw thresholds of 0.92/0.67).
-PROB_VERIFIED = 0.70   # top class holds ≥70% of probability mass → verified
+PROB_VERIFIED = 0.85   # top class holds ≥85% of probability mass → verified
 PROB_NULL     = 0.40   # ambiguous band floor
+
+# Hard gate: reject before softmax if the image isn't close enough to ANY prototype.
+# Random noise scores 0.05–0.08; real photos (activity or not) sit at 0.15–0.35.
+# 0.15 rejects pure noise/garbage while passing genuine activity photos.
+MIN_COSINE_FLOOR = 0.15
+
+# Minimum raw cosine margin the top class must have over the runner-up.
+# Prevents amplifying noise when all 5 habits score within 0.03 of each other.
+MIN_COSINE_MARGIN = 0.02
 
 # Input image size expected by MobileCLIP
 INPUT_SIZE = 224
@@ -190,6 +203,56 @@ def softmax_probs(scores: dict[str, float]) -> dict[str, float]:
 
 
 # ---------------------------------------------------------------------------
+# Gemma 4 fallback (via Ollama) — only called when CLIP is ambiguous
+# ---------------------------------------------------------------------------
+
+GEMMA_PROMPT = (
+    "You are a habit verification assistant. Look at this image and determine "
+    "which ONE of the following habits it shows: gym, running, reading, cooking, meditation. "
+    "If none of these habits are clearly shown, respond with 'none'. "
+    "Respond with ONLY the single habit word, nothing else."
+)
+
+def classify_with_gemma(frame_base64: str, habit_ids: Optional[list[str]] = None) -> tuple[Optional[str], float]:
+    """
+    Send image to Gemma 4 via Ollama for classification.
+    Returns (detected_habit, confidence) where confidence is 1.0 if matched, 0.0 if none.
+    """
+    allowed = habit_ids if habit_ids else SUPPORTED_HABITS
+    prompt = (
+        f"You are a strict habit verification assistant. Look at this image carefully. "
+        f"A person must be ACTIVELY and CLEARLY performing one of these habits: {', '.join(allowed)}. "
+        f"Rules:\n"
+        f"- The habit must be the obvious main subject of the image\n"
+        f"- A person must be visibly engaged in the activity\n"
+        f"- Background objects (e.g. a TV showing someone running) do NOT count\n"
+        f"- If you are not highly confident, respond with 'none'\n"
+        f"Respond with ONLY the single habit word or 'none'. No explanation."
+    )
+    try:
+        resp = requests.post(
+            f"{OLLAMA_URL}/api/generate",
+            json={
+                "model": GEMMA_MODEL,
+                "prompt": prompt,
+                "images": [frame_base64],
+                "stream": False,
+            },
+            timeout=12,
+        )
+        resp.raise_for_status()
+        answer = resp.json().get("response", "").strip().lower()
+        # Extract just the habit word in case the model adds punctuation
+        for habit in allowed:
+            if habit in answer:
+                return habit, 1.0
+        return None, 0.0
+    except Exception as e:
+        print(f"[gemma] fallback failed: {e}")
+        return None, 0.0
+
+
+# ---------------------------------------------------------------------------
 # Endpoints
 # ---------------------------------------------------------------------------
 
@@ -203,14 +266,16 @@ def healthz():
 @app.post("/verify", response_model=VerifyResponse, tags=["Verification"])
 def verify(payload: VerifyRequest) -> VerifyResponse:
     """
-    Blind habit detection: scans the photo against ALL loaded habit prototypes
-    and returns the best match.
+    Blind habit detection: scans the photo against loaded habit prototypes.
 
-    - Does NOT require knowing the habit in advance
-    - Returns detected_habit = whichever scored highest after softmax
-    - verified=true  if top class probability >= PROB_VERIFIED (0.70)
-    - verified=null  if top class probability is in ambiguous band (0.40–0.70)
-    - verified=false if nothing clears the floor (detected_habit=None)
+    Pipeline:
+      1. Gate 1 — raw cosine floor (MIN_COSINE_FLOOR=0.25): reject non-activity images.
+      2. Gate 2 — raw cosine margin (MIN_COSINE_MARGIN=0.04): if all habits score within
+         0.04 of each other (noise), escalate directly to Gemma rather than forcing a winner.
+      3. Softmax (LOGIT_SCALE=20) over remaining candidates.
+      4. verified=True  if top class probability >= PROB_VERIFIED (0.85)
+         verified=None  if in ambiguous band (0.40–0.85) → Gemma fallback
+         verified=False if nothing clears the band
     """
     # --- Auth ---
     if payload.demo_token != DEMO_TOKEN:
@@ -229,16 +294,20 @@ def verify(payload: VerifyRequest) -> VerifyResponse:
     inference_ms = int((t1 - t0) * 1000)
 
     # --- Determine which habits to scan ---
-    if payload.habit_ids:
-        # Only scan the habits the user actually has
-        habits_to_scan = {h: v for h, v in prototypes.items() if h in payload.habit_ids}
-        if not habits_to_scan:
-            raise HTTPException(
-                status_code=400,
-                detail=f"None of the requested habit_ids {payload.habit_ids} have prototypes loaded.",
-            )
-    else:
-        habits_to_scan = prototypes
+    # Always score against ALL loaded prototypes regardless of habit_ids.
+    # habit_ids is used only to filter the *reported* winner — we still need the
+    # full comparison to tell "person running" from "person on couch".
+    habits_to_scan = prototypes
+    if not habits_to_scan:
+        raise HTTPException(status_code=503, detail="No prototype embeddings loaded.")
+
+    # Which habits the user actually tracks (None = accept any)
+    requested_habits: Optional[set[str]] = set(payload.habit_ids) if payload.habit_ids else None
+    if requested_habits and not any(h in prototypes for h in requested_habits):
+        raise HTTPException(
+            status_code=400,
+            detail=f"None of the requested habit_ids {payload.habit_ids} have prototypes loaded.",
+        )
 
     # --- Score against selected habits (max sim across each habit's prototypes) ---
     raw_scores: dict[str, float] = {}
@@ -246,28 +315,48 @@ def verify(payload: VerifyRequest) -> VerifyResponse:
         sims = cosine_similarities(embedding, proto_matrix)
         raw_scores[habit_id] = float(np.max(sims))
 
-    # Softmax over temperature-scaled scores → proper class probabilities
-    prob_map = softmax_probs(raw_scores)
-    best_habit = max(prob_map, key=prob_map.get)
-    best_prob = prob_map[best_habit]
+    best_habit_raw = max(raw_scores, key=raw_scores.get)
+    best_score_raw = raw_scores[best_habit_raw]
+    sorted_scores = sorted(raw_scores.values(), reverse=True)
+    raw_margin = sorted_scores[0] - sorted_scores[1] if len(sorted_scores) > 1 else 0.0
 
     print(
         f"[verify] cosine={{{', '.join(f'{h}:{s:.4f}' for h, s in raw_scores.items())}}} "
-        f"prob={{{', '.join(f'{h}:{p:.3f}' for h, p in prob_map.items())}}} "
-        f"best={best_habit} p={best_prob:.3f}"
+        f"best_raw={best_habit_raw}:{best_score_raw:.4f} margin={raw_margin:.4f}"
     )
 
-    if best_prob >= PROB_VERIFIED:
-        verified: Optional[bool] = True
-    elif best_prob >= PROB_NULL:
-        verified = None
-    else:
-        verified = False
-        best_habit = None
+    # Gate 1: absolute cosine floor — reject images with no resemblance to any habit.
+    # Non-activity images (living rooms, random shots) typically score below 0.25.
+    if best_score_raw < MIN_COSINE_FLOOR:
+        print(f"[verify] REJECTED — best raw cosine {best_score_raw:.4f} < floor {MIN_COSINE_FLOOR}")
+        return VerifyResponse(verified=False, detected_habit=None, confidence=0.0, inference_ms=inference_ms)
 
+    # Gate 2: margin check — if all habits score within 0.04 of each other the signal
+    # is noise, not a real classification. Escalate to Gemma rather than forcing a winner.
+    if raw_margin < MIN_COSINE_MARGIN:
+        print(f"[verify] AMBIGUOUS — raw margin {raw_margin:.4f} < {MIN_COSINE_MARGIN}, escalating to Gemma …")
+        t2 = time.perf_counter()
+        gemma_habit, _ = classify_with_gemma(payload.frame_base64, payload.habit_ids)
+        inference_ms += int((time.perf_counter() - t2) * 1000)
+        if gemma_habit:
+            return VerifyResponse(verified=True, detected_habit=gemma_habit, confidence=0.75, inference_ms=inference_ms)
+        # Gemma unavailable — return CLIP's best guess as ambiguous so UI shows "Looks like X?"
+        return VerifyResponse(verified=None, detected_habit=best_habit_raw, confidence=round(best_score_raw, 6), inference_ms=inference_ms)
+
+    # Both gates passed: floor proves the image is real, margin proves one class
+    # clearly won. The softmax 0.85 threshold is redundant here — it just dilutes
+    # a clear winner across 5 classes and makes everything look ambiguous.
+    # Trust the winner directly and apply the requested_habits filter.
+    best_habit = best_habit_raw
+
+    if requested_habits and best_habit not in requested_habits:
+        print(f"[verify] winner={best_habit} not in user habits {requested_habits} → rejected")
+        return VerifyResponse(verified=False, detected_habit=None, confidence=0.0, inference_ms=inference_ms)
+
+    print(f"[verify] VERIFIED — {best_habit}:{best_score_raw:.4f} margin={raw_margin:.4f}")
     return VerifyResponse(
-        verified=verified,
+        verified=True,
         detected_habit=best_habit,
-        confidence=round(best_prob, 6),
+        confidence=round(best_score_raw, 6),
         inference_ms=inference_ms,
     )

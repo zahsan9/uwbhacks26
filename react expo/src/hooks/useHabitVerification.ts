@@ -9,7 +9,8 @@ export interface IdentifyResult {
     timedOut: boolean;
 }
 
-const TIMEOUT_MS = 8000;
+// 20s covers CLIP inference (~400ms) + Gemma 4 fallback via Ollama (~5–15s on CPU)
+const TIMEOUT_MS = 20000;
 const TARGET_SIZE = 224; // CLIP ViT-B/32 input resolution
 const JPEG_QUALITY = 0.92; // raised from 0.7 — low JPEG quality introduced artifacts that corrupt embeddings
 
@@ -58,6 +59,7 @@ export function useHabitIdentification(habitIds?: string[]) {
             }).then(async (res) => {
                 if (!res.ok) throw new Error(`Server responded with ${res.status}`);
                 const json = await res.json();
+                console.log("[verify] server response:", JSON.stringify(json));
 
                 const detectedId: string = json.detected_habit ?? "";
                 return {
