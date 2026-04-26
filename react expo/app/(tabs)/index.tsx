@@ -10,6 +10,8 @@ import { supabase } from '../../lib/supabase';
 import { setTabAccentMode, useTabAccentMode } from '../../src/tabAccent';
 import {
   getAvatarState,
+  getHabitDaysMissed,
+  getHabitStateFromMisses,
   getCompositeScore,
   getDaySince,
   getHabitScore,
@@ -192,14 +194,15 @@ export default function LandingScreen() {
       Promise.all(
         uniqueHabitRows.map(async (h: { id: string; name: string; habit_id_key: string; is_healthkit: boolean; tier: number; created_at?: string }) => {
           const locked = (h.tier ?? 1) >= 2;
-          const score = locked ? 50 : await getHabitScore(h.id);
-          const streakValue = locked ? 0 : getDaySince(h.created_at ?? userRow?.created_at ?? new Date().toISOString());
+          const createdAt = h.created_at ?? userRow?.created_at ?? new Date().toISOString();
+          const daysMissed = locked ? 0 : await getHabitDaysMissed(h.id, createdAt);
+          const streakValue = locked ? 0 : getDaySince(createdAt);
           return {
             id: h.id,
             name: HABIT_DISPLAY_NAME[h.habit_id_key] ?? h.name,
             habitIdKey: h.habit_id_key,
             icon: HABIT_ICON[h.habit_id_key] ?? '❓',
-            state: locked ? 'sick' as AvatarState : getAvatarState(score),
+            state: locked ? 'sick' as AvatarState : getHabitStateFromMisses(daysMissed),
             streak: streakValue,
             locked,
           } satisfies LiveHabit;

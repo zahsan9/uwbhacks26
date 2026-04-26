@@ -84,6 +84,51 @@ function dayKeysEndingToday(numDays: number): string[] {
     });
 }
 
+// ── Per-habit state ───────────────────────────────────────────────────────────
+// State based on consecutive missed days from today, bounded by habit creation.
+// 0 missed → thriving, 1 → healthy, 2 → sick, 3+ → critical.
+
+export async function getHabitDaysMissed(habitId: string, habitCreatedAt: string): Promise<number> {
+    const cacheKey = `habit-missed:${habitId}`;
+    const cached = cacheGet(cacheKey);
+    if (cached !== null) return cached;
+
+    const createdDayKey = localDayKey(new Date(habitCreatedAt));
+    const since = startOfLocalDay(new Date());
+    since.setDate(since.getDate() - 6);
+
+    const { data, error } = await supabase
+        .from('habit_logs')
+        .select('completed_at')
+        .eq('habit_id', habitId)
+        .gte('completed_at', since.toISOString());
+
+    const loggedDays = new Set(
+        (error || !data ? [] : data).map((log: { completed_at: string }) =>
+            localDayKey(log.completed_at)
+        )
+    );
+
+    let missed = 0;
+    for (let i = 0; i <= 6; i++) {
+        const day = startOfLocalDay(new Date());
+        day.setDate(day.getDate() - i);
+        const key = localDayKey(day);
+        if (key < createdDayKey) break;
+        if (loggedDays.has(key)) break;
+        missed++;
+    }
+
+    return cacheSet(cacheKey, missed);
+}
+
+export function getHabitStateFromMisses(daysMissed: number): AvatarState {
+    if (daysMissed <= 0) return 'thriving';
+    if (daysMissed === 1) return 'healthy';
+    if (daysMissed === 2) return 'sick';
+    return 'critical';
+}
+
 // ── Per-habit score ───────────────────────────────────────────────────────────
 // Score = fraction of the last 3 days that had at least one log, × 100.
 
