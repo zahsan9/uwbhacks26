@@ -1,21 +1,7 @@
 node_modules/
 react expo/node_modules/
-react expo/.env
 react expo/.expo/
 *.xcuserstate
-
-<<<<<<< HEAD
-# Python
-__pycache__/
-*.pyc
-*.pyo
+vitaquest-backend/models/
 .DS_Store
-
-# ONNX intermediate files
-vitaquest-backend/models/*.data
-vitaquest-backend/models/*.onnx
-vitaquest-backend/models/*.data
-=======
-# Large model artifact
-vitaquest-backend/models/mobileclip_image_quantized.onnx
->>>>>>> origin/archit
+react expo/.env

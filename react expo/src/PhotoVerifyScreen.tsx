@@ -9,41 +9,53 @@ import { BackButton, Body, H2, VQButton } from "./Components";
 import { useHabitIdentification } from "./hooks/useHabitVerification";
 import { VQ } from "./theme";
 
+export interface VerifyResult {
+    verified: boolean;
+    habitId: string;
+    habitName: string;
+    confidence: number;
+    isManual: boolean;
+}
+
 interface PhotoVerifyScreenProps {
-    onComplete: (verified: boolean) => void;
+    onComplete: (result: VerifyResult) => void | Promise<void>;
+    habitIds?: string[];
 }
 
 type Stage = "camera" | "checking" | "verified" | "ambiguous" | "failed";
 
-export default function PhotoVerifyScreen({ onComplete }: PhotoVerifyScreenProps) {
+export default function PhotoVerifyScreen({ onComplete, habitIds }: PhotoVerifyScreenProps) {
     const router = useRouter();
     const [permission, requestPermission] = useCameraPermissions();
     const cameraRef = useRef<CameraView>(null);
-    const { identify } = useHabitIdentification();
+    const { identify } = useHabitIdentification(habitIds);
     const [detectedHabit, setDetectedHabit] = useState<string>("");
+    const [detectedHabitId, setDetectedHabitId] = useState<string>("");
 
     const [stage, setStage] = useState<Stage>("camera");
     const [frozenUri, setFrozenUri] = useState<string | null>(null);
     const [confidence, setConfidence] = useState(0);
+    const [isCapturing, setIsCapturing] = useState(false);
+    const [isSubmitting, setIsSubmitting] = useState(false);
 
     // Animated values
     const pulseOpacity = useRef(new Animated.Value(0.5)).current;
-    const dotScale    = useRef(new Animated.Value(1)).current;
-    const badgeScale  = useRef(new Animated.Value(0)).current;
-    const badgeOpa    = useRef(new Animated.Value(0)).current;
-    const xpOpa       = useRef(new Animated.Value(0)).current;
-    const xpTY        = useRef(new Animated.Value(16)).current;
-    const blobBounce  = useRef(new Animated.Value(0)).current;
-    const shakeX      = useRef(new Animated.Value(0)).current;
+    const dotScale = useRef(new Animated.Value(1)).current;
+    const badgeScale = useRef(new Animated.Value(0)).current;
+    const badgeOpa = useRef(new Animated.Value(0)).current;
+    const xpOpa = useRef(new Animated.Value(0)).current;
+    const xpTY = useRef(new Animated.Value(16)).current;
+    const blobBounce = useRef(new Animated.Value(0)).current;
+    const shakeX = useRef(new Animated.Value(0)).current;
 
     const startPulse = useCallback(() => {
         Animated.loop(Animated.sequence([
-            Animated.timing(pulseOpacity, { toValue: 1,   duration: 600, useNativeDriver: true }),
+            Animated.timing(pulseOpacity, { toValue: 1, duration: 600, useNativeDriver: true }),
             Animated.timing(pulseOpacity, { toValue: 0.3, duration: 600, useNativeDriver: true }),
         ])).start();
         Animated.loop(Animated.sequence([
             Animated.timing(dotScale, { toValue: 1.4, duration: 500, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
-            Animated.timing(dotScale, { toValue: 1,   duration: 500, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
+            Animated.timing(dotScale, { toValue: 1, duration: 500, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
         ])).start();
     }, [pulseOpacity, dotScale]);
 
@@ -54,52 +66,73 @@ export default function PhotoVerifyScreen({ onComplete }: PhotoVerifyScreenProps
         ]).start(() => {
             Animated.parallel([
                 Animated.timing(xpOpa, { toValue: 1, duration: 300, useNativeDriver: true }),
-                Animated.timing(xpTY,  { toValue: 0, duration: 300, easing: Easing.out(Easing.ease), useNativeDriver: true }),
+                Animated.timing(xpTY, { toValue: 0, duration: 300, easing: Easing.out(Easing.ease), useNativeDriver: true }),
             ]).start();
             Animated.loop(Animated.sequence([
                 Animated.timing(blobBounce, { toValue: -10, duration: 280, useNativeDriver: true }),
-                Animated.timing(blobBounce, { toValue: 0,   duration: 280, useNativeDriver: true }),
+                Animated.timing(blobBounce, { toValue: 0, duration: 280, useNativeDriver: true }),
             ]), { iterations: 4 }).start();
         });
     }, [badgeScale, badgeOpa, xpOpa, xpTY, blobBounce]);
 
     const animateShake = useCallback(() => {
         Animated.sequence([
-            Animated.timing(shakeX, { toValue: 12,  duration: 60, useNativeDriver: true }),
+            Animated.timing(shakeX, { toValue: 12, duration: 60, useNativeDriver: true }),
             Animated.timing(shakeX, { toValue: -12, duration: 60, useNativeDriver: true }),
-            Animated.timing(shakeX, { toValue: 8,   duration: 60, useNativeDriver: true }),
-            Animated.timing(shakeX, { toValue: -8,  duration: 60, useNativeDriver: true }),
-            Animated.timing(shakeX, { toValue: 0,   duration: 60, useNativeDriver: true }),
+            Animated.timing(shakeX, { toValue: 8, duration: 60, useNativeDriver: true }),
+            Animated.timing(shakeX, { toValue: -8, duration: 60, useNativeDriver: true }),
+            Animated.timing(shakeX, { toValue: 0, duration: 60, useNativeDriver: true }),
         ]).start();
     }, [shakeX]);
 
     const handleCapture = useCallback(async () => {
-        if (!cameraRef.current) return;
-        const photo = await cameraRef.current.takePictureAsync({ quality: 1 });
-        if (!photo) return;
-        setFrozenUri(photo.uri);
-        setStage("checking");
-        startPulse();
-        const result = await identify(photo.uri);
-        setConfidence(result.confidence);
-        setDetectedHabit(result.habitName);
-        if (result.verified === true) {
-            setStage("verified");
-            animateBadge();
-        } else if (result.verified === null || result.timedOut) {
-            setStage("ambiguous");
-        } else {
-            setStage("failed");
-            animateShake();
+        if (!cameraRef.current || isCapturing) return;
+        setIsCapturing(true);
+        try {
+            const photo = await cameraRef.current.takePictureAsync({ quality: 0.6, skipProcessing: true });
+            if (!photo) return;
+            setFrozenUri(photo.uri);
+            setStage("checking");
+            startPulse();
+            const result = await identify(photo.uri);
+            setConfidence(result.confidence);
+            setDetectedHabit(result.habitName);
+            setDetectedHabitId(result.habitId);
+            if (result.verified === true) {
+                setStage("verified");
+                animateBadge();
+            } else if (result.verified === null || result.timedOut) {
+                setStage("ambiguous");
+            } else {
+                setStage("failed");
+                animateShake();
+            }
+        } finally {
+            setIsCapturing(false);
         }
-    }, [identify, startPulse, animateBadge, animateShake]);
+    }, [animateBadge, animateShake, identify, isCapturing, startPulse]);
 
     const handleRetry = () => {
         badgeScale.setValue(0); badgeOpa.setValue(0); xpOpa.setValue(0);
         xpTY.setValue(16); blobBounce.setValue(0); shakeX.setValue(0);
         pulseOpacity.setValue(0.5); dotScale.setValue(1);
-        setFrozenUri(null); setConfidence(0); setStage("camera");
+        setDetectedHabit("");
+        setDetectedHabitId("");
+        setFrozenUri(null);
+        setConfidence(0);
+        setIsSubmitting(false);
+        setStage("camera");
     };
+
+    const submitResult = useCallback(async (result: VerifyResult) => {
+        if (isSubmitting) return;
+        setIsSubmitting(true);
+        try {
+            await Promise.resolve(onComplete(result));
+        } finally {
+            setIsSubmitting(false);
+        }
+    }, [isSubmitting, onComplete]);
 
     useEffect(() => {
         if (!permission?.granted) requestPermission();
@@ -142,16 +175,16 @@ export default function PhotoVerifyScreen({ onComplete }: PhotoVerifyScreenProps
                     { top: "68%", left: "8%" }, { top: "68%", right: "8%" },
                 ].map((pos, i) => (
                     <View key={i} style={[s.corner, pos as any,
-                        i === 0 && { borderRightWidth: 0, borderBottomWidth: 0 },
-                        i === 1 && { borderLeftWidth: 0,  borderBottomWidth: 0 },
-                        i === 2 && { borderRightWidth: 0, borderTopWidth: 0 },
-                        i === 3 && { borderLeftWidth: 0,  borderTopWidth: 0 },
+                    i === 0 && { borderRightWidth: 0, borderBottomWidth: 0 },
+                    i === 1 && { borderLeftWidth: 0, borderBottomWidth: 0 },
+                    i === 2 && { borderRightWidth: 0, borderTopWidth: 0 },
+                    i === 3 && { borderLeftWidth: 0, borderTopWidth: 0 },
                     ]} />
                 ))}
 
                 {/* Shutter */}
                 <View style={{ position: "absolute", bottom: 48, left: 0, right: 0, alignItems: "center" }}>
-                    <Pressable onPress={handleCapture} style={s.shutterOuter}>
+                    <Pressable onPress={handleCapture} disabled={isCapturing} style={[s.shutterOuter, isCapturing && { opacity: 0.6 }]}>
                         <View style={s.shutterInner} />
                     </Pressable>
                     <Text style={s.shutterLabel}>tap to capture</Text>
@@ -197,7 +230,9 @@ export default function PhotoVerifyScreen({ onComplete }: PhotoVerifyScreenProps
                             +50 XP
                         </Animated.Text>
                         <View style={{ marginTop: 8, width: "100%", paddingHorizontal: 32 }}>
-                            <VQButton label="Continue" onPress={() => { onComplete(true); router.back(); }} />
+                            <VQButton label={isSubmitting ? "Saving..." : "Continue"} disabled={isSubmitting} onPress={() => {
+                                void submitResult({ verified: true, habitId: detectedHabitId, habitName: detectedHabit, confidence, isManual: false });
+                            }} />
                         </View>
                     </View>
                 )}
@@ -211,10 +246,14 @@ export default function PhotoVerifyScreen({ onComplete }: PhotoVerifyScreenProps
                         <Text style={s.overlayBody}>Couldn't fully confirm. Trust your effort.</Text>
                         <View style={{ flexDirection: "row", gap: 12, marginTop: 24, paddingHorizontal: 32 }}>
                             <View style={{ flex: 1 }}>
-                                <VQButton label="Yes, I did it" onPress={() => { onComplete(true); router.back(); }} />
+                                <VQButton label={isSubmitting ? "Saving..." : "Yes, I did it"} disabled={isSubmitting} onPress={() => {
+                                    void submitResult({ verified: true, habitId: detectedHabitId, habitName: detectedHabit, confidence, isManual: true });
+                                }} />
                             </View>
                             <View style={{ flex: 1 }}>
-                                <VQButton label="No" style="ghost" onPress={() => { onComplete(false); router.back(); }} />
+                                <VQButton label="No" style="ghost" disabled={isSubmitting} onPress={() => {
+                                    void submitResult({ verified: false, habitId: detectedHabitId, habitName: detectedHabit, confidence, isManual: false });
+                                }} />
                             </View>
                         </View>
                     </View>
@@ -231,7 +270,9 @@ export default function PhotoVerifyScreen({ onComplete }: PhotoVerifyScreenProps
                         </View>
                         <View style={{ marginTop: 16, width: "100%", paddingHorizontal: 32, gap: 10 }}>
                             <VQButton label="Try again" onPress={handleRetry} />
-                            <VQButton label="Skip" style="ghost" onPress={() => { onComplete(false); router.back(); }} />
+                            <VQButton label="Skip" style="ghost" disabled={isSubmitting} onPress={() => {
+                                void submitResult({ verified: false, habitId: "", habitName: "", confidence: 0, isManual: false });
+                            }} />
                         </View>
                     </Animated.View>
                 )}
