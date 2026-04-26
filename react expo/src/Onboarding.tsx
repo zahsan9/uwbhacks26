@@ -235,7 +235,7 @@ function HealthScreen({ onNext }: { onNext: () => void }) {
   return (
     <WorldBg>
       <ScrollView contentContainerStyle={{ padding: 28, paddingTop: 76 }}>
-        <Eyebrow style={{ marginBottom: 12 }}>02 / 04</Eyebrow>
+        <Eyebrow style={{ marginBottom: 12 }}>02 / 03</Eyebrow>
         <H1 style={{ marginBottom: 10 }}>Connect Apple Health</H1>
         <Body style={{ marginBottom: 28 }}>
           We read health data silently — no logging.
@@ -429,7 +429,7 @@ function HabitsScreen({ onDone }: { onDone: () => void }) {
     <WorldBg>
       <SafeAreaView style={{ flex: 1 }}>
         <ScrollView contentContainerStyle={{ padding: 24, paddingTop: 18, paddingBottom: 28 }}>
-          <Eyebrow style={{ marginBottom: 12 }}>04 / 04</Eyebrow>
+          <Eyebrow style={{ marginBottom: 12 }}>03 / 03</Eyebrow>
           <H1 style={{ marginBottom: 10 }}>Pick your islands</H1>
           <Body style={{ marginBottom: 18 }}>
             Choose up to 5 habits. Your first 3 start active and the next 2 unlock later.
@@ -574,6 +574,5 @@ export default function OnboardingView({ onDone }: { onDone: () => void }) {
   const next = () => setStep((s) => s + 1);
   if (step === 0) return <SignupScreen onNext={next} onDone={onDone} />;
   if (step === 1) return <HealthScreen onNext={next} />;
-  if (step === 2) return <AvatarScreen onNext={next} />;
   return <HabitsScreen onDone={onDone} />;
 }
