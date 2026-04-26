@@ -39,8 +39,9 @@ export default function RootLayout() {
         setOnboarded(habits != null && habits.length > 0);
         return;
       }
-      const val = await AsyncStorage.getItem("onboarded");
-      setOnboarded(val === "true");
+      // No active session — always show onboarding regardless of AsyncStorage,
+      // since a stale "onboarded" flag with no session causes the logout glitch.
+      setOnboarded(false);
     }
     checkSession();
   }, [pathname]);
