@@ -35,12 +35,36 @@ export function getAvatarState(score: number): AvatarState {
     return 'critical';
 }
 
+function startOfLocalDay(date: Date): Date {
+    const day = new Date(date);
+    day.setHours(0, 0, 0, 0);
+    return day;
+}
+
+function localDayKey(input: string | Date): string {
+    const date = typeof input === 'string' ? new Date(input) : input;
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+}
+
+function dayKeysEndingToday(numDays: number): string[] {
+    const today = startOfLocalDay(new Date());
+    return Array.from({ length: numDays }, (_, index) => {
+        const day = new Date(today);
+        day.setDate(today.getDate() - index);
+        return localDayKey(day);
+    });
+}
+
 // ── Per-habit score ───────────────────────────────────────────────────────────
 // Score = fraction of the last 3 days that had at least one log, × 100.
 
 export async function getHabitScore(habitId: string): Promise<number> {
-    const since = new Date();
-    since.setDate(since.getDate() - 3);
+    const since = startOfLocalDay(new Date());
+    since.setDate(since.getDate() - 2);
+    const recentDayKeys = new Set(dayKeysEndingToday(3));
 
     const { data, error } = await supabase
         .from('habit_logs')
@@ -52,11 +76,15 @@ export async function getHabitScore(habitId: string): Promise<number> {
 
     const distinctDays = new Set(
         data.map((log: { completed_at: string }) =>
-            new Date(log.completed_at).toDateString()
+            localDayKey(log.completed_at)
         )
     );
 
-    return Math.round((distinctDays.size / 3) * 100);
+    const completedRecentDays = Array.from(distinctDays).filter((dayKey) =>
+        recentDayKeys.has(dayKey)
+    ).length;
+
+    return Math.round((Math.min(completedRecentDays, 3) / 3) * 100);
 }
 
 // ── Composite score ───────────────────────────────────────────────────────────
@@ -64,13 +92,28 @@ export async function getHabitScore(habitId: string): Promise<number> {
 export async function getCompositeScore(userId: string): Promise<number> {
     const { data: habits, error } = await supabase
         .from('habits')
-        .select('id')
+        .select('id, tier, habit_id_key')
         .eq('user_id', userId);
 
     if (error || !habits || habits.length === 0) return 50; // neutral default
 
+    const activeHabits = Array.from(
+        new Map(
+            habits
+                .filter((habit: { tier: number | null; habit_id_key: string }) =>
+                    (habit.tier ?? 1) < 2 && Boolean(habit.habit_id_key)
+                )
+                .map((habit: { id: string; tier: number | null; habit_id_key: string }) => [
+                    habit.habit_id_key,
+                    habit,
+                ])
+        ).values()
+    );
+
+    if (activeHabits.length === 0) return 50;
+
     const scores = await Promise.all(
-        habits.map((h: { id: string }) => getHabitScore(h.id))
+        activeHabits.map((h: { id: string }) => getHabitScore(h.id))
     );
     const avg = scores.reduce((a: number, b: number) => a + b, 0) / scores.length;
     return Math.round(avg);
@@ -90,16 +133,16 @@ export async function getHabitStreak(habitId: string): Promise<number> {
 
     const logDays = new Set(
         data.map((log: { completed_at: string }) =>
-            new Date(log.completed_at).toDateString()
+            localDayKey(log.completed_at)
         )
     );
 
     let streak = 0;
-    const today = new Date();
+    const today = startOfLocalDay(new Date());
     for (let i = 0; i < 365; i++) {
         const day = new Date(today);
         day.setDate(day.getDate() - i);
-        if (logDays.has(day.toDateString())) {
+        if (logDays.has(localDayKey(day))) {
             streak++;
         } else {
             break;
@@ -122,16 +165,16 @@ export async function getOverallStreak(userId: string): Promise<number> {
 
     const logDays = new Set(
         data.map((log: { completed_at: string }) =>
-            new Date(log.completed_at).toDateString()
+            localDayKey(log.completed_at)
         )
     );
 
     let streak = 0;
-    const today = new Date();
+    const today = startOfLocalDay(new Date());
     for (let i = 0; i < 365; i++) {
         const day = new Date(today);
         day.setDate(day.getDate() - i);
-        if (logDays.has(day.toDateString())) {
+        if (logDays.has(localDayKey(day))) {
             streak++;
         } else {
             break;

@@ -1,19 +1,90 @@
 import { Tabs } from 'expo-router';
+import { Ionicons } from '@expo/vector-icons';
+import { Text, View } from 'react-native';
+import { useTabAccentMode } from '../../src/tabAccent';
 import { VQ } from '../../src/theme';
 
+type IoniconName = React.ComponentProps<typeof Ionicons>['name'];
+
+function TabIcon({
+  name,
+  label,
+  focused,
+  blue,
+}: {
+  name: IoniconName;
+  label: string;
+  focused: boolean;
+  blue: boolean;
+}) {
+  const active = blue ? VQ.cyanBright : '#E8E0D4';
+  const inactive = blue ? 'rgba(207,234,242,0.35)' : 'rgba(232,224,212,0.35)';
+  const activeBg = blue ? 'rgba(234,228,218,0.94)' : 'rgba(232,224,212,0.14)';
+  const activeFg = blue ? VQ.midnightSoft : active;
+
+  return (
+    <View style={{ width: 66, alignItems: 'center', justifyContent: 'center', gap: 4, transform: [{ translateY: 2 }] }}>
+      <View
+        style={{
+          minWidth: 44,
+          height: 34,
+          paddingHorizontal: 10,
+          borderRadius: 12,
+          alignItems: 'center',
+          justifyContent: 'center',
+          backgroundColor: focused ? activeBg : 'transparent',
+          borderWidth: focused ? 1 : 0,
+          borderColor: focused ? 'rgba(207,234,242,0.18)' : 'transparent',
+        }}
+      >
+        <Ionicons
+          name={focused ? name : `${name}-outline` as IoniconName}
+          size={18}
+          color={focused ? activeFg : inactive}
+        />
+      </View>
+      <Text
+        style={{
+          fontFamily: 'PixelifySans_600SemiBold',
+          fontSize: 9,
+          letterSpacing: 1,
+          textTransform: 'uppercase',
+          color: focused ? active : inactive,
+        }}
+      >
+        {label}
+      </Text>
+    </View>
+  );
+}
+
 export default function TabLayout() {
+  const accent = useTabAccentMode();
+  const blueTabs = accent === 'blue';
+
   return (
     <Tabs screenOptions={{
       headerShown: false,
-      tabBarActiveTintColor: VQ.ink,
-      tabBarInactiveTintColor: VQ.inkDim,
-      tabBarStyle: { backgroundColor: VQ.seashellSoft, borderTopColor: VQ.border },
-      tabBarLabelStyle: { fontFamily: 'PixelifySans_500Medium', fontSize: 11 },
+      tabBarShowLabel: false,
+      tabBarStyle: {
+        backgroundColor: blueTabs ? VQ.midnightSoft : '#0a1a0b',
+        borderTopWidth: 0,
+        height: 82,
+        paddingTop: 12,
+        paddingBottom: 10,
+        borderTopLeftRadius: 24,
+        borderTopRightRadius: 24,
+        position: 'absolute',
+        shadowColor: blueTabs ? VQ.midnight : '#000',
+        shadowOffset: { width: 0, height: -4 },
+        shadowOpacity: 0.3,
+        shadowRadius: 12,
+      },
     }}>
-      <Tabs.Screen name="index"   options={{ title: 'Home',      tabBarIcon: ({ color }) => null }} />
-      <Tabs.Screen name="map"     options={{ title: 'Habit Map', tabBarIcon: ({ color }) => null }} />
-      <Tabs.Screen name="friends" options={{ title: 'Friends',   tabBarIcon: ({ color }) => null }} />
-      <Tabs.Screen name="profile" options={{ title: 'Profile',   tabBarIcon: ({ color }) => null }} />
+      <Tabs.Screen name="index"   options={{ tabBarIcon: ({ focused }) => <TabIcon name="home" label="Home" focused={focused} blue={blueTabs} /> }} />
+      <Tabs.Screen name="map"     options={{ tabBarIcon: ({ focused }) => <TabIcon name="map" label="Map" focused={focused} blue={blueTabs} /> }} />
+      <Tabs.Screen name="friends" options={{ tabBarIcon: ({ focused }) => <TabIcon name="chatbubbles" label="Friends" focused={focused} blue={blueTabs} /> }} />
+      <Tabs.Screen name="profile" options={{ tabBarIcon: ({ focused }) => <TabIcon name="person" label="Profile" focused={focused} blue={blueTabs} /> }} />
     </Tabs>
   );
 }

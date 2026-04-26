@@ -1,6 +1,6 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { Image } from "expo-image";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   Animated,
   Dimensions,
@@ -12,8 +12,16 @@ import {
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
+import { useFocusEffect } from "@react-navigation/native";
 import Svg, { Path } from "react-native-svg";
+import { supabase } from "../../lib/supabase";
+import {
+  getAvatarState,
+  getHabitScore,
+  getHabitStreak,
+} from "../../lib/scoreEngine";
 import Blob from "../../src/Blob";
+import { setTabAccentMode } from "../../src/tabAccent";
 
 import {
   BackButton,
@@ -24,10 +32,9 @@ import {
   StatePill,
   VQCard,
   WaterBg,
-  WorldBg,
 } from "../../src/Components";
 import Island from "../../src/Island";
-import { ISLAND_STATES, islandMeta, islandName } from "../../src/models";
+import { islandName } from "../../src/models";
 import { AvatarState, IslandType, VQ } from "../../src/theme";
 
 const WALK_GIF = require("../../assets/cute_chubby_fat_blue_panda_round_roly-poly_body_si_sleepy_east.gif");
@@ -81,17 +88,175 @@ const HABIT_SLOT_KEYS = ["slot0", "slot1", "slot2", "slot3", "slot4"] as const;
 
 type HabitSlot = {
   habitId: string;
+  rowId?: string;
   key: string;
   label: string;
   locked: boolean;
+  state?: AvatarState;
+  detail?: HabitIslandDetail;
+};
+
+type DayCell = {
+  status: "hit" | "missed";
+  isToday: boolean;
+};
+
+type HabitIslandDetail = {
+  stat: string;
+  unit: string;
+  goal: string;
+  streak: number;
+  pattern: DayCell[];
+  todayLog: string;
+  todayXp: number;
+  score: number;
+  weekCount: number;
 };
 const DEFAULT_HABIT_SLOTS: HabitSlot[] = [
-  { habitId: "steps", key: "walk", label: "Walking", locked: false },
-  { habitId: "sleep", key: "sleep", label: "Sleep", locked: false },
-  { habitId: "screen", key: "screen", label: "Screen Time", locked: false },
-  { habitId: "gym", key: "gym", label: "Workout", locked: true },
-  { habitId: "meditate", key: "meditation", label: "Meditation", locked: true },
+  { habitId: "steps", key: "walk", label: "Walking", locked: false, state: "healthy" },
+  { habitId: "sleep", key: "sleep", label: "Sleep", locked: false, state: "healthy" },
+  { habitId: "screen", key: "screen", label: "Screen Time", locked: false, state: "healthy" },
+  { habitId: "gym", key: "gym", label: "Workout", locked: true, state: "sick" },
+  { habitId: "meditate", key: "meditation", label: "Meditation", locked: true, state: "sick" },
 ];
+
+const HABIT_LABELS: Record<string, string> = {
+  walk: "Walking",
+  sleep: "Sleep",
+  screen: "Screen Time",
+  gym: "Workout",
+  running: "Running",
+  reading: "Reading",
+  cooking: "Cooking",
+  meditation: "Meditation",
+};
+
+function buildHabitSlots(
+  rows: Array<{ id: string; habit_id_key: string; name: string; tier: number | null }>
+): HabitSlot[] {
+  const deduped = Array.from(
+    new Map(
+      rows
+        .filter((row) => Boolean(row.habit_id_key))
+        .map((row) => [row.habit_id_key, row])
+    ).values()
+  ).slice(0, HABIT_SLOT_KEYS.length);
+
+  return deduped.map((row) => ({
+    habitId: row.habit_id_key,
+    rowId: row.id,
+    key: row.habit_id_key,
+    label: row.name || HABIT_LABELS[row.habit_id_key] || row.habit_id_key,
+    locked: (row.tier ?? 1) >= 2,
+    state: (row.tier ?? 1) >= 2 ? "sick" : "healthy",
+  }));
+}
+
+function localDayKey(input: string | Date): string {
+  const date = typeof input === "string" ? new Date(input) : input;
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function dayKeysEndingToday(numDays: number): string[] {
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  return Array.from({ length: numDays }, (_, index) => {
+    const day = new Date(today);
+    day.setDate(today.getDate() - index);
+    return localDayKey(day);
+  });
+}
+
+function buildPattern(logDayKeys: Set<string>): DayCell[] {
+  const last30 = dayKeysEndingToday(30).reverse();
+  const todayKey = localDayKey(new Date());
+  return last30.map((dayKey) => ({
+    status: logDayKeys.has(dayKey) ? "hit" : "missed",
+    isToday: dayKey === todayKey,
+  }));
+}
+
+function daysAgoFromKey(dayKey: string): number {
+  const target = new Date(`${dayKey}T00:00:00`);
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  return Math.max(
+    0,
+    Math.round((today.getTime() - target.getTime()) / (1000 * 60 * 60 * 24))
+  );
+}
+
+function buildMainStat(habitKey: string, weekCount: number): Pick<HabitIslandDetail, "stat" | "unit" | "goal"> {
+  if (habitKey === "walk") {
+    return { stat: `${weekCount}/7`, unit: "walk days this week", goal: "7 days" };
+  }
+  if (habitKey === "sleep") {
+    return { stat: `${weekCount}/7`, unit: "sleep days this week", goal: "7 days" };
+  }
+  if (habitKey === "screen") {
+    return { stat: `${weekCount}/7`, unit: "screen wins this week", goal: "7 days" };
+  }
+  return { stat: String(weekCount), unit: "logs this week", goal: "7 / week" };
+}
+
+async function buildHabitDetail(slot: HabitSlot): Promise<HabitIslandDetail | undefined> {
+  if (!slot.rowId || slot.locked) return undefined;
+
+  const thirtyDaysAgo = new Date();
+  thirtyDaysAgo.setHours(0, 0, 0, 0);
+  thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 29);
+
+  const { data: logs, error } = await supabase
+    .from("habit_logs")
+    .select("completed_at, verified_by, xp_awarded")
+    .eq("habit_id", slot.rowId)
+    .gte("completed_at", thirtyDaysAgo.toISOString())
+    .order("completed_at", { ascending: false });
+
+  if (error) {
+    console.warn("[map] failed to fetch habit logs:", error.message);
+    return undefined;
+  }
+
+  const recentLogs = logs ?? [];
+  const logDayKeys = new Set(
+    recentLogs.map((log: { completed_at: string }) => localDayKey(log.completed_at))
+  );
+  const last7Keys = new Set(dayKeysEndingToday(7));
+  const weekCount = Array.from(logDayKeys).filter((dayKey) => last7Keys.has(dayKey)).length;
+  const todayKey = localDayKey(new Date());
+  const todayLogs = recentLogs.filter(
+    (log: { completed_at: string }) => localDayKey(log.completed_at) === todayKey
+  );
+  const todayXp = todayLogs.reduce(
+    (sum: number, log: { xp_awarded: number | null }) => sum + (log.xp_awarded ?? 0),
+    0
+  );
+  const latestLog = recentLogs[0];
+  const todayLog = todayLogs.length > 0
+    ? `Completed today via ${todayLogs[0].verified_by}.`
+    : latestLog
+      ? `Last completed ${daysAgoFromKey(localDayKey(latestLog.completed_at))} day${daysAgoFromKey(localDayKey(latestLog.completed_at)) === 1 ? "" : "s"} ago.`
+      : "No check-ins yet for this island.";
+
+  const [score, streak] = await Promise.all([
+    getHabitScore(slot.rowId),
+    getHabitStreak(slot.rowId),
+  ]);
+
+  return {
+    ...buildMainStat(slot.key, weekCount),
+    streak,
+    pattern: buildPattern(logDayKeys),
+    todayLog,
+    todayXp,
+    score,
+    weekCount,
+  };
+}
 
 const habitKeyToIslandType = (key: string): IslandType => {
   if (key === "walk" || key === "sleep" || key === "screen")
@@ -112,197 +277,163 @@ const PANDA_SCALE = 4.5;
 const PANDA_SIZE = PANDA_SCALE * 20;
 const PANDA_LEFT = home.x - (PANDA_SIZE / 2 + 28);
 const PANDA_TOP = home.y - home.scale * 11 - (PANDA_SIZE - 62);
+// Canvas center x of panda when at home
+const PANDA_HOME_X = PANDA_LEFT + PANDA_SIZE / 2;
+
+// ─── Bezier walk helpers ──────────────────────────────────────────────────────
+type WalkRoute = { endX: number; endY: number; controlX: number; controlY: number };
+
+function getCurveControl(from: { x: number; y: number }, to: { x: number; y: number }, offset: number) {
+  const mx = (from.x + to.x) / 2;
+  const my = (from.y + to.y) / 2;
+  const dx = to.x - from.x;
+  const dy = to.y - from.y;
+  const len = Math.sqrt(dx * dx + dy * dy) || 1;
+  return { x: mx + (-dy / len) * offset, y: my + (dx / len) * offset };
+}
+
+function getPandaRoute(slotKey: string): WalkRoute {
+  const pos = POSITIONS[slotKey];
+  const start = { x: PANDA_HOME_X, y: home.y - home.scale * 11 };
+  const end   = { x: pos.x,        y: pos.y  - pos.scale  * 11 };
+  const ctrl  = getCurveControl(start, end, CURVE_OFFSETS[slotKey] ?? 28);
+  return {
+    endX:     end.x  - start.x,
+    endY:     end.y  - start.y,
+    controlX: ctrl.x - start.x,
+    controlY: ctrl.y - start.y,
+  };
+}
+
+function pointOnRoute(route: WalkRoute, t: number) {
+  const inv = 1 - t;
+  return {
+    x: 2 * inv * t * route.controlX + t * t * route.endX,
+    y: 2 * inv * t * route.controlY + t * t * route.endY,
+  };
+}
 
 // ─── Island detail overlay ────────────────────────────────────────────────────
 function IslandDetail({
   type,
   state,
   habitKey,
+  title,
+  detail,
   onBack,
 }: {
   type: IslandType;
   state: AvatarState;
   habitKey?: string;
+  title?: string;
+  detail?: HabitIslandDetail;
   onBack: () => void;
 }) {
-  const meta = islandMeta[type];
-  const name = islandName[type];
-  const today = 25;
-
-  const pattern = Array.from({ length: 30 }, (_, i) => {
-    if (i > today) return "future";
-    if (i === today) return "today";
-    if (type === "walk") return i % 7 === 3 && i < 15 ? "missed" : "hit";
-    if (type === "sleep") return i < 18 && i % 5 === 2 ? "partial" : "hit";
-    return i < 20 && i % 3 !== 0 ? "missed" : "hit";
-  });
-
-  const dayColor = (p: string) =>
-    ({
-      hit: "#6ed4a3",
-      partial: "#ffc260",
-      missed: "#d76060",
-      today: "#ff8b6a",
-      future: "rgba(31,58,74,0.1)",
-    })[p] ?? "transparent";
+  const name = title || islandName[type];
   const detailScaleBoost = habitKey
     ? (HABIT_SIZE_MULTIPLIER[habitKey] ?? 1)
     : 1;
 
-  const todayLog: Record<AvatarState, string> = {
-    thriving: "✓ pulled from HealthKit · 82% of goal",
-    healthy: "pulled from HealthKit · 68% of goal",
-    sick: "missed yesterday — a short walk recovers you",
-    critical: "3 days missed — your island is wilting",
-  };
-
   return (
-    <WorldBg>
+    <WaterBg>
       <SafeAreaView style={{ flex: 1 }}>
-        <View
-          style={{
-            flexDirection: "row",
-            alignItems: "center",
-            gap: 8,
-            paddingHorizontal: 14,
-            paddingTop: 8,
-            paddingBottom: 4,
-          }}
-        >
+        {/* Header */}
+        <View style={{ flexDirection: "row", alignItems: "center", gap: 8, paddingHorizontal: 14, paddingTop: 8, paddingBottom: 4 }}>
           <BackButton onPress={onBack} />
-          <H3 style={{ flex: 1 }}>{name}</H3>
+          <View style={{ flex: 1 }}>
+            <H3>{name}</H3>
+            <Small>Island detail</Small>
+          </View>
           <StatePill state={state} />
         </View>
 
-        <View
-          style={{
-            alignItems: "center",
-            height: 200,
-            justifyContent: "center",
-          }}
-        >
+        {/* Island art */}
+        <View style={{ alignItems: "center", height: 200, justifyContent: "center" }}>
           <View style={{ alignItems: "center" }}>
-            <View
-              style={{
-                marginBottom: -58,
-                zIndex: 1,
-                transform: [{ translateX: 22 }],
-              }}
-            >
+            <View style={{ marginBottom: -58, zIndex: 1, transform: [{ translateX: 22 }] }}>
               <Blob state={state} scale={5} />
             </View>
             {habitKey && HABIT_PNG[habitKey] ? (
-              <Image
-                source={HABIT_PNG[habitKey]}
-                style={{
-                  width: 52 * 4 * detailScaleBoost,
-                  height: 32 * 4 * detailScaleBoost,
-                }}
-                contentFit="contain"
-              />
+              <Image source={HABIT_PNG[habitKey]} style={{ width: 52 * 4 * detailScaleBoost, height: 32 * 4 * detailScaleBoost }} contentFit="contain" />
             ) : (
               <Island type={type} state={state} scale={4} />
             )}
           </View>
         </View>
 
-        <ScrollView
-          style={{ flex: 1 }}
-          contentContainerStyle={{ padding: 16, gap: 10, paddingBottom: 44 }}
-        >
-          <VQCard warm>
-            <View style={{ alignItems: "center", gap: 4 }}>
-              <Text
-                style={{
-                  fontFamily: "PixelifySans_700Bold",
-                  fontSize: 34,
-                  color: VQ.ink,
-                  lineHeight: 38,
-                }}
-              >
-                {meta.stat}
+        <ScrollView style={{ flex: 1 }} contentContainerStyle={{ padding: 16, gap: 10, paddingBottom: 44 }}>
+          {/* Main stat */}
+          <View style={{ backgroundColor: "rgba(0,30,45,0.65)", borderRadius: 16, borderWidth: 1, borderColor: "rgba(255,255,255,0.12)", padding: 20, alignItems: "center", gap: 6 }}>
+            <Text style={{ fontFamily: "PixelifySans_700Bold", fontSize: 38, color: "#E8E0D4", lineHeight: 42 }}>
+              {detail?.stat ?? "—"}
+            </Text>
+            <Text style={{ fontFamily: "PixelifySans_400Regular", fontSize: 12, color: "rgba(232,224,212,0.6)" }}>
+              {detail ? `${detail.unit} · goal ${detail.goal}` : "Loading…"}
+            </Text>
+          </View>
+
+          {/* Streak calendar */}
+          <View style={{ backgroundColor: "rgba(0,30,45,0.65)", borderRadius: 16, borderWidth: 1, borderColor: "rgba(255,255,255,0.12)", padding: 16, gap: 12 }}>
+            <View style={{ flexDirection: "row", alignItems: "center" }}>
+              <Text style={{ fontSize: 18, marginRight: 8 }}>🔥</Text>
+              <Text style={{ fontFamily: "PixelifySans_700Bold", fontSize: 16, color: "#E8E0D4", flex: 1 }}>
+                {detail?.streak ?? 0} Day Streak
               </Text>
-              <Small>
-                {meta.unit} · goal {meta.goal}
-              </Small>
+              <Text style={{ fontFamily: "PixelifySans_400Regular", fontSize: 11, color: "rgba(232,224,212,0.5)" }}>
+                Last 30 Days
+              </Text>
             </View>
-          </VQCard>
-
-          <VQCard>
-            <View style={{ gap: 10 }}>
-              <View
-                style={{ flexDirection: "row", alignItems: "center", gap: 8 }}
-              >
-                <Text style={{ fontSize: 16 }}>🔥</Text>
-                <H3 style={{ flex: 1 }}>{meta.streak} day streak</H3>
-                <Small>last 30 days</Small>
-              </View>
-              <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 4 }}>
-                {pattern.map((p, i) => (
-                  <View
-                    key={i}
-                    style={{
-                      width: SQUARE,
-                      height: SQUARE,
-                      backgroundColor: dayColor(p),
-                      borderRadius: 2,
-                      borderWidth: p === "today" ? 2 : 0,
-                      borderColor: "#ff8b6a",
-                    }}
-                  />
-                ))}
-              </View>
-              <View style={{ flexDirection: "row", gap: 14 }}>
-                {[
-                  ["hit", "#6ed4a3"],
-                  ["partial", "#ffc260"],
-                  ["missed", "#d76060"],
-                ].map(([label, color]) => (
-                  <View
-                    key={label}
-                    style={{
-                      flexDirection: "row",
-                      alignItems: "center",
-                      gap: 4,
-                    }}
-                  >
-                    <View
-                      style={{
-                        width: 10,
-                        height: 10,
-                        backgroundColor: color as string,
-                      }}
-                    />
-                    <Small>{label}</Small>
-                  </View>
-                ))}
-              </View>
+            <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 4 }}>
+              {(detail?.pattern ?? []).map((cell, i) => (
+                <View
+                  key={i}
+                  style={{
+                    width: SQUARE,
+                    height: SQUARE,
+                    backgroundColor: cell.status === "hit" ? "#78c8d8" : "#d06868",
+                    borderRadius: 6,
+                    borderWidth: cell.isToday ? 2 : 0,
+                    borderColor: "#f07848",
+                  }}
+                />
+              ))}
             </View>
-          </VQCard>
+            <View style={{ flexDirection: "row", gap: 16 }}>
+              {[
+                ["Hit",     "#78c8d8"],
+                ["Missed",  "#d06868"],
+              ].map(([label, color]) => (
+                <View key={label} style={{ flexDirection: "row", alignItems: "center", gap: 5 }}>
+                  <View style={{ width: 10, height: 10, borderRadius: 3, backgroundColor: color }} />
+                  <Text style={{ fontFamily: "PixelifySans_400Regular", fontSize: 11, color: "rgba(232,224,212,0.55)" }}>{label}</Text>
+                </View>
+              ))}
+            </View>
+          </View>
 
-          <VQCard soft>
-            <Eyebrow style={{ marginBottom: 6 }}>today's log</Eyebrow>
-            <H3>{todayLog[state]}</H3>
-          </VQCard>
+          {/* Today's log */}
+          <View style={{ backgroundColor: "rgba(0,30,45,0.65)", borderRadius: 16, borderWidth: 1, borderColor: "rgba(255,255,255,0.12)", padding: 16, gap: 8 }}>
+            <Text style={{ fontFamily: "PixelifySans_600SemiBold", fontSize: 9, color: "rgba(232,224,212,0.5)", textTransform: "uppercase", letterSpacing: 2 }}>TODAY'S LOG</Text>
+            <Text style={{ fontFamily: "PixelifySans_500Medium", fontSize: 14, color: "#E8E0D4", lineHeight: 20 }}>{detail?.todayLog ?? "Loading…"}</Text>
+          </View>
 
+          {/* Bottom stat tiles */}
           <View style={{ flexDirection: "row", gap: 8 }}>
             {[
-              { icon: "⭐", val: "+24 xp", label: "today" },
-              { icon: "🏆", val: "Lvl 4", label: "next: 120 xp" },
-              { icon: "❤️", val: "78/100", label: "health" },
+              { icon: "⭐", val: `+${detail?.todayXp ?? 0} xp`, label: "Today" },
+              { icon: "🏆", val: `${detail?.weekCount ?? 0}/7`, label: "This week" },
+              { icon: "❤️", val: `${detail?.score ?? 0}/100`, label: "Health" },
             ].map((item) => (
-              <VQCard key={item.label}>
-                <View style={{ alignItems: "center", gap: 4, flex: 1 }}>
-                  <Text style={{ fontSize: 16 }}>{item.icon}</Text>
-                  <H3>{item.val}</H3>
-                  <Small>{item.label}</Small>
-                </View>
-              </VQCard>
+              <View key={item.label} style={{ flex: 1, backgroundColor: "rgba(0,30,45,0.65)", borderRadius: 16, borderWidth: 1, borderColor: "rgba(255,255,255,0.12)", padding: 14, alignItems: "center", gap: 6 }}>
+                <Text style={{ fontSize: 22 }}>{item.icon}</Text>
+                <Text style={{ fontFamily: "PixelifySans_700Bold", fontSize: 16, color: "#E8E0D4", lineHeight: 18 }}>{item.val}</Text>
+                <Text style={{ fontFamily: "PixelifySans_400Regular", fontSize: 10, color: "rgba(232,224,212,0.5)" }}>{item.label}</Text>
+              </View>
             ))}
           </View>
         </ScrollView>
       </SafeAreaView>
-    </WorldBg>
+    </WaterBg>
   );
 }
 
@@ -312,14 +443,87 @@ export default function MapScreen() {
   const [habitSlots, setHabitSlots] =
     useState<HabitSlot[]>(DEFAULT_HABIT_SLOTS);
 
-  useEffect(() => {
-    AsyncStorage.getItem("selectedHabitSlots").then((raw) => {
-      if (raw) setHabitSlots(JSON.parse(raw));
-    });
+  const loadHabitSlots = useCallback(async () => {
+    try {
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+
+      if (session?.user) {
+        const { data: rows, error } = await supabase
+          .from("habits")
+          .select("id, habit_id_key, name, tier, created_at")
+          .eq("user_id", session.user.id)
+          .order("created_at", { ascending: true });
+
+        if (!error && rows && rows.length > 0) {
+          const baseSlots = buildHabitSlots(rows);
+          const nextSlots = await Promise.all(
+            baseSlots.map(async (slot) => {
+              if (slot.locked || !slot.rowId) {
+                return {
+                  ...slot,
+                  state: "sick" as AvatarState,
+                };
+              }
+
+              const detail = await buildHabitDetail(slot);
+
+              return {
+                ...slot,
+                state: getAvatarState(detail?.score ?? 0),
+                detail: detail ?? {
+                  ...buildMainStat(slot.key, 0),
+                  streak: 0,
+                  pattern: buildPattern(new Set<string>()),
+                  todayLog: "No check-ins yet for this island.",
+                  todayXp: 0,
+                  score: 0,
+                  weekCount: 0,
+                },
+              };
+            })
+          );
+          setHabitSlots(nextSlots);
+          await AsyncStorage.setItem(
+            "selectedHabitSlots",
+            JSON.stringify(nextSlots)
+          );
+          return;
+        }
+      }
+
+      const raw = await AsyncStorage.getItem("selectedHabitSlots");
+      if (raw) {
+        try {
+          const parsed = JSON.parse(raw) as HabitSlot[];
+          setHabitSlots(parsed.slice(0, HABIT_SLOT_KEYS.length));
+          return;
+        } catch (parseErr) {
+          console.warn("[map] invalid selectedHabitSlots cache:", parseErr);
+        }
+      }
+
+      setHabitSlots(DEFAULT_HABIT_SLOTS);
+    } catch (err) {
+      console.warn("[map] failed to load habit slots:", err);
+      setHabitSlots(DEFAULT_HABIT_SLOTS);
+    }
   }, []);
+
+  useFocusEffect(
+    useCallback(() => {
+      setTabAccentMode('blue');
+      void loadHabitSlots();
+    }, [loadHabitSlots])
+  );
 
   const pandaTX = useRef(new Animated.Value(0)).current;
   const pandaTY = useRef(new Animated.Value(0)).current;
+  // Bezier path driver (JS-side, drives pandaTX/pandaTY via listener)
+  const pandaPathT = useRef(new Animated.Value(0)).current;
+  const pandaPathListener = useRef<string | null>(null);
+  const lastRoute = useRef<WalkRoute | null>(null);
   const mapScale = useRef(new Animated.Value(1)).current;
   const mapTX = useRef(new Animated.Value(0)).current;
   const mapTY = useRef(new Animated.Value(0)).current;
@@ -332,25 +536,36 @@ export default function MapScreen() {
   const idleOpa = useRef(new Animated.Value(1)).current;
   const walkScaleX = useRef(new Animated.Value(1)).current;
   const homeBobAnim = useRef(new Animated.Value(0)).current;
+  const slotBobAnims = useRef({
+    slot0: new Animated.Value(0),
+    slot1: new Animated.Value(0),
+    slot2: new Animated.Value(0),
+    slot3: new Animated.Value(0),
+    slot4: new Animated.Value(0),
+  }).current;
 
   useEffect(() => {
-    Animated.loop(
-      Animated.sequence([
-        Animated.timing(homeBobAnim, {
-          toValue: -5,
-          duration: 1500,
-          useNativeDriver: true,
-          easing: Easing.inOut(Easing.ease),
-        }),
-        Animated.timing(homeBobAnim, {
-          toValue: 0,
-          duration: 1500,
-          useNativeDriver: true,
-          easing: Easing.inOut(Easing.ease),
-        }),
-      ]),
-    ).start();
-    return () => homeBobAnim.stopAnimation();
+    const bob = (anim: Animated.Value, duration: number) =>
+      Animated.loop(Animated.sequence([
+        Animated.timing(anim, { toValue: -5, duration, useNativeDriver: true, easing: Easing.inOut(Easing.ease) }),
+        Animated.timing(anim, { toValue: 0,  duration, useNativeDriver: true, easing: Easing.inOut(Easing.ease) }),
+      ])).start();
+    bob(homeBobAnim,            1500);
+    bob(slotBobAnims.slot0,     1700);
+    bob(slotBobAnims.slot1,     1800);
+    bob(slotBobAnims.slot2,     1600);
+    bob(slotBobAnims.slot3,     1900);
+    bob(slotBobAnims.slot4,     1750);
+    return () => {
+      homeBobAnim.stopAnimation();
+      Object.values(slotBobAnims).forEach(a => a.stopAnimation());
+    };
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      if (pandaPathListener.current) pandaPathT.removeListener(pandaPathListener.current);
+    };
   }, []);
 
   const isAnimating = useRef(false);
@@ -394,6 +609,23 @@ export default function MapScreen() {
     idleOpa.setValue(1);
   };
 
+  const animatePandaAlongRoute = (route: WalkRoute, toValue: 0 | 1, duration: number) => {
+    if (pandaPathListener.current) pandaPathT.removeListener(pandaPathListener.current);
+    pandaPathT.stopAnimation();
+    pandaPathT.setValue(toValue === 1 ? 0 : 1);
+    pandaPathListener.current = pandaPathT.addListener(({ value }) => {
+      const pt = pointOnRoute(route, value);
+      pandaTX.setValue(pt.x);
+      pandaTY.setValue(pt.y);
+    });
+    return Animated.timing(pandaPathT, {
+      toValue,
+      duration,
+      easing: Easing.inOut(Easing.quad),
+      useNativeDriver: false,
+    });
+  };
+
   const canvasCY = useRef(home.y);
   const lastIslandX = useRef(home.x);
 
@@ -406,111 +638,52 @@ export default function MapScreen() {
     isAnimating.current = true;
     setOverlayIsland(slotKey);
 
-    const dx = pos.x - home.x + 28;
-    const dy = pos.y - pos.scale * 11 - (home.y - home.scale * 11);
+    const route = getPandaRoute(slotKey);
     const s = 3.2;
     const panX = s * (W * 0.5 - pos.x);
     const panY = s * (canvasCY.current - pos.y);
     lastIslandX.current = pos.x;
+    lastRoute.current = route;
     startWalking(pos.x < home.x);
 
+    // Phase 1: panda walks bezier curve to island
     Animated.parallel([
-      Animated.timing(pandaTX, {
-        toValue: dx,
-        duration: 1200,
-        easing: Easing.linear,
-        useNativeDriver: true,
-      }),
-      Animated.timing(pandaTY, {
-        toValue: dy,
-        duration: 1200,
-        easing: Easing.linear,
-        useNativeDriver: true,
-      }),
-      Animated.timing(mapTX, {
-        toValue: panX * 0.4,
-        duration: 1200,
-        easing: Easing.out(Easing.quad),
-        useNativeDriver: true,
-      }),
-      Animated.timing(mapTY, {
-        toValue: panY * 0.4,
-        duration: 1200,
-        easing: Easing.out(Easing.quad),
-        useNativeDriver: true,
-      }),
+      animatePandaAlongRoute(route, 1, 1900),
+      Animated.timing(mapTX, { toValue: panX * 0.4, duration: 1900, easing: Easing.out(Easing.quad), useNativeDriver: true }),
+      Animated.timing(mapTY, { toValue: panY * 0.4, duration: 1900, easing: Easing.out(Easing.quad), useNativeDriver: true }),
     ]).start(() => {
       stopWalking();
+      // Phase 2: zoom into island
       Animated.parallel([
-        Animated.timing(mapScale, {
-          toValue: s,
-          duration: 1100,
-          easing: Easing.in(Easing.quad),
-          useNativeDriver: true,
-        }),
-        Animated.timing(mapTX, {
-          toValue: panX,
-          duration: 1100,
-          useNativeDriver: true,
-        }),
-        Animated.timing(mapTY, {
-          toValue: panY,
-          duration: 1100,
-          useNativeDriver: true,
-        }),
+        Animated.timing(mapScale, { toValue: s,    duration: 1100, easing: Easing.in(Easing.quad), useNativeDriver: true }),
+        Animated.timing(mapTX,    { toValue: panX, duration: 1100, useNativeDriver: true }),
+        Animated.timing(mapTY,    { toValue: panY, duration: 1100, useNativeDriver: true }),
         Animated.sequence([
           Animated.delay(600),
-          Animated.timing(overlayOpa, {
-            toValue: 1,
-            duration: 500,
-            useNativeDriver: true,
-          }),
+          Animated.timing(overlayOpa, { toValue: 1, duration: 500, useNativeDriver: true }),
         ]),
       ]).start();
     });
   };
 
   const closeIsland = () => {
+    const route = lastRoute.current;
     startWalking(lastIslandX.current >= home.x);
+
     Animated.parallel([
-      Animated.timing(overlayOpa, {
-        toValue: 0,
-        duration: 280,
-        useNativeDriver: true,
-      }),
+      Animated.timing(overlayOpa, { toValue: 0, duration: 280, useNativeDriver: true }),
       Animated.sequence([
         Animated.delay(150),
         Animated.parallel([
-          Animated.timing(mapScale, {
-            toValue: 1,
-            duration: 700,
-            easing: Easing.out(Easing.cubic),
-            useNativeDriver: true,
-          }),
-          Animated.timing(mapTX, {
-            toValue: 0,
-            duration: 700,
-            easing: Easing.out(Easing.cubic),
-            useNativeDriver: true,
-          }),
-          Animated.timing(mapTY, {
-            toValue: 0,
-            duration: 700,
-            easing: Easing.out(Easing.cubic),
-            useNativeDriver: true,
-          }),
-          Animated.timing(pandaTX, {
-            toValue: 0,
-            duration: 1100,
-            easing: Easing.linear,
-            useNativeDriver: true,
-          }),
-          Animated.timing(pandaTY, {
-            toValue: 0,
-            duration: 1100,
-            easing: Easing.linear,
-            useNativeDriver: true,
-          }),
+          Animated.timing(mapScale, { toValue: 1, duration: 700, easing: Easing.out(Easing.cubic), useNativeDriver: true }),
+          Animated.timing(mapTX,    { toValue: 0, duration: 700, easing: Easing.out(Easing.cubic), useNativeDriver: true }),
+          Animated.timing(mapTY,    { toValue: 0, duration: 700, easing: Easing.out(Easing.cubic), useNativeDriver: true }),
+          route
+            ? animatePandaAlongRoute(route, 0, 1600)
+            : Animated.parallel([
+                Animated.timing(pandaTX, { toValue: 0, duration: 1100, easing: Easing.linear, useNativeDriver: true }),
+                Animated.timing(pandaTY, { toValue: 0, duration: 1100, easing: Easing.linear, useNativeDriver: true }),
+              ]),
         ]),
       ]),
     ]).start(() => {
@@ -594,9 +767,8 @@ export default function MapScreen() {
               const png = HABIT_PNG[slot.key];
               const sizeBoost = HABIT_SIZE_MULTIPLIER[slot.key] ?? 1;
               const islandType = habitKeyToIslandType(slot.key);
-              const state = slot.locked
-                ? "sick"
-                : (ISLAND_STATES[islandType] ?? "healthy");
+              const state = slot.state ?? (slot.locked ? "sick" : "healthy");
+              const bobAnim = slotBobAnims[slotKey as keyof typeof slotBobAnims];
               return (
                 <Pressable
                   key={slot.habitId}
@@ -613,36 +785,38 @@ export default function MapScreen() {
                     opacity: slot.locked ? 0.55 : 1,
                   }}
                 >
-                  {png ? (
-                    <Image
-                      source={png}
+                  <Animated.View style={{ transform: [{ translateY: bobAnim }], alignItems: "center" }}>
+                    {png ? (
+                      <Image
+                        source={png}
+                        style={{
+                          width: 52 * pos.scale * sizeBoost,
+                          height: 32 * pos.scale * sizeBoost,
+                        }}
+                        contentFit="contain"
+                      />
+                    ) : (
+                      <Island
+                        type={islandType}
+                        state={state}
+                        scale={pos.scale}
+                        locked={slot.locked}
+                      />
+                    )}
+                    <Text
                       style={{
-                        width: 52 * pos.scale * sizeBoost,
-                        height: 32 * pos.scale * sizeBoost,
+                        fontFamily: "PixelifySans_500Medium",
+                        fontSize: 10,
+                        color: slot.locked
+                          ? "rgba(255,255,255,0.35)"
+                          : "rgba(255,255,255,0.85)",
+                        letterSpacing: 0.4,
+                        marginTop: 4,
                       }}
-                      contentFit="contain"
-                    />
-                  ) : (
-                    <Island
-                      type={islandType}
-                      state={state}
-                      scale={pos.scale}
-                      locked={slot.locked}
-                    />
-                  )}
-                  <Text
-                    style={{
-                      fontFamily: "PixelifySans_500Medium",
-                      fontSize: 10,
-                      color: slot.locked
-                        ? "rgba(255,255,255,0.35)"
-                        : "rgba(255,255,255,0.85)",
-                      letterSpacing: 0.4,
-                      marginTop: 4,
-                    }}
-                  >
-                    {slot.label}
-                  </Text>
+                    >
+                      {slot.label}
+                    </Text>
+                  </Animated.View>
                 </Pressable>
               );
             })}
@@ -722,7 +896,7 @@ export default function MapScreen() {
           const islandType: IslandType = slot
             ? habitKeyToIslandType(slot.key)
             : "walk";
-          const islandState = ISLAND_STATES[islandType] ?? "healthy";
+          const islandState = slot?.state ?? "healthy";
           return (
             <Animated.View
               style={{
@@ -739,6 +913,8 @@ export default function MapScreen() {
                 type={islandType}
                 state={islandState}
                 habitKey={slot?.key}
+                title={slot?.label}
+                detail={slot?.detail}
                 onBack={closeIsland}
               />
             </Animated.View>

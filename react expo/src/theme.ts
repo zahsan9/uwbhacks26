@@ -24,6 +24,11 @@ export const VQ = {
   borderStrong:  'rgba(29,29,27,0.18)',
   water2:        '#6ac0cb',
   water3:        '#3d8c96',
+  midnight:      '#06183d',
+  midnightSoft:  '#0b2552',
+  midnightLift:  '#12366a',
+  cyanSoft:      '#8fc8d8',
+  cyanBright:    '#cfeaf2',
 } as const;
 
 export type AvatarState = 'thriving' | 'healthy' | 'sick' | 'critical';

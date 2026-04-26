@@ -75,13 +75,13 @@ function SignupScreen({ onNext, onDone }: { onNext: () => void; onDone: () => vo
         throw new Error(`Unexpected redirect URL: ${result.url}`);
       }
 
-      const {
-        data: { session },
-      } = await supabase.auth.getSession();
+        const {
+          data: { session },
+        } = await supabase.auth.getSession();
       if (session) {
         const { data: existing } = await supabase
           .from("users")
-          .select("id")
+          .select("id, username")
           .eq("id", session.user.id)
           .single();
 
@@ -90,11 +90,21 @@ function SignupScreen({ onNext, onDone }: { onNext: () => void; onDone: () => vo
           await supabase.from("users").insert({
             id: session.user.id,
             google_id: session.user.user_metadata?.sub ?? null,
+            email: session.user.email ?? null,
             username:
               session.user.user_metadata?.full_name ?? fallbackUsername,
             avatar_id: 1,
             total_xp: 0,
           });
+        } else {
+          await supabase
+            .from("users")
+            .update({
+              email: session.user.email ?? null,
+              username:
+                session.user.user_metadata?.full_name ?? existing.username ?? `user_${session.user.id.slice(0, 8)}`,
+            })
+            .eq("id", session.user.id);
         }
 
         // Returning user who already has habits — skip onboarding entirely
@@ -119,7 +129,7 @@ function SignupScreen({ onNext, onDone }: { onNext: () => void; onDone: () => vo
   };
 
   return (
-    <View style={{ flex: 1, backgroundColor: "#071d4a" }}>
+    <View style={{ flex: 1, backgroundColor: VQ.midnight }}>
       <Image
         source={require("../assets/login_screen_ref.png")}
         style={{ position: "absolute", top: 0, bottom: 0, left: 0, right: 0 }}
@@ -359,6 +369,8 @@ function HabitsScreen({ onDone }: { onDone: () => void }) {
   const idxOf = (id: string) => selOrder.indexOf(id);
   const isSelected = (id: string) => selOrder.includes(id);
   const isLocked = (id: string) => idxOf(id) >= MAX_ACTIVE;
+  const activeCount = Math.min(selOrder.length, MAX_ACTIVE);
+  const lockedCount = Math.max(0, selOrder.length - MAX_ACTIVE);
 
   const handleBeginQuest = async () => {
     setLoading(true);
@@ -415,23 +427,68 @@ function HabitsScreen({ onDone }: { onDone: () => void }) {
 
   return (
     <WorldBg>
-      <ScrollView contentContainerStyle={{ padding: 28, paddingTop: 76 }}>
-        <Eyebrow style={{ marginBottom: 12 }}>04 / 04</Eyebrow>
-        <H1 style={{ marginBottom: 10 }}>Pick your islands</H1>
-        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
-          <Body>First 3 are active. Last 2 start locked.</Body>
-        </View>
-        <View style={{ flexDirection: 'row', gap: 8, marginBottom: 20 }}>
-          <View style={{ flex: 1, backgroundColor: VQ.skySoft, borderRadius: 6, paddingVertical: 8, alignItems: 'center' }}>
-            <Small style={{ color: VQ.water3, fontFamily: 'PixelifySans_600SemiBold' }}>active</Small>
-            <Text style={{ fontFamily: 'PixelifySans_700Bold', fontSize: 20, color: VQ.water3, lineHeight: 24 }}>{Math.min(selOrder.length, MAX_ACTIVE)} / {MAX_ACTIVE}</Text>
+      <SafeAreaView style={{ flex: 1 }}>
+        <ScrollView contentContainerStyle={{ padding: 24, paddingTop: 18, paddingBottom: 28 }}>
+          <Eyebrow style={{ marginBottom: 12 }}>04 / 04</Eyebrow>
+          <H1 style={{ marginBottom: 10 }}>Pick your islands</H1>
+          <Body style={{ marginBottom: 18 }}>
+            Choose up to 5 habits. Your first 3 start active and the next 2 unlock later.
+          </Body>
+
+          <View style={{ flexDirection: 'row', gap: 10, marginBottom: 18 }}>
+            <View
+              style={{
+                flex: 1,
+                backgroundColor: 'rgba(158,214,223,0.16)',
+                borderRadius: 14,
+                paddingVertical: 14,
+                paddingHorizontal: 12,
+                borderWidth: 1,
+                borderColor: 'rgba(158,214,223,0.28)',
+                alignItems: 'center',
+                gap: 4,
+              }}
+            >
+              <Small style={{ color: '#9ED6DF', fontFamily: 'PixelifySans_600SemiBold', textTransform: 'uppercase', letterSpacing: 1 }}>
+                active
+              </Small>
+              <Text style={{ fontFamily: 'PixelifySans_700Bold', fontSize: 22, color: '#D6EDF2', lineHeight: 24 }}>
+                {activeCount} / {MAX_ACTIVE}
+              </Text>
+            </View>
+            <View
+              style={{
+                flex: 1,
+                backgroundColor: 'rgba(232,224,212,0.10)',
+                borderRadius: 14,
+                paddingVertical: 14,
+                paddingHorizontal: 12,
+                borderWidth: 1,
+                borderColor: 'rgba(232,224,212,0.16)',
+                alignItems: 'center',
+                gap: 4,
+              }}
+            >
+              <Small style={{ color: 'rgba(232,224,212,0.64)', fontFamily: 'PixelifySans_600SemiBold', textTransform: 'uppercase', letterSpacing: 1 }}>
+                locked
+              </Small>
+              <Text style={{ fontFamily: 'PixelifySans_700Bold', fontSize: 22, color: '#E8E0D4', lineHeight: 24 }}>
+                {lockedCount} / {MAX_TOTAL - MAX_ACTIVE}
+              </Text>
+            </View>
           </View>
-          <View style={{ flex: 1, backgroundColor: VQ.seashellDeep, borderRadius: 6, paddingVertical: 8, alignItems: 'center' }}>
-            <Small style={{ color: VQ.inkDim, fontFamily: 'PixelifySans_600SemiBold' }}>locked</Small>
-            <Text style={{ fontFamily: 'PixelifySans_700Bold', fontSize: 20, color: VQ.inkDim, lineHeight: 24 }}>{Math.max(0, selOrder.length - MAX_ACTIVE)} / {MAX_TOTAL - MAX_ACTIVE}</Text>
-          </View>
-        </View>
-        {STARTER_HABITS.map((h) => {
+
+          <View
+            style={{
+              backgroundColor: 'rgba(7,29,56,0.34)',
+              borderRadius: 18,
+              borderWidth: 1,
+              borderColor: 'rgba(214,237,242,0.12)',
+              overflow: 'hidden',
+              marginBottom: 20,
+            }}
+          >
+            {STARTER_HABITS.map((h, index) => {
           const on = isSelected(h.id);
           const locked = isLocked(h.id);
           const atMax = selOrder.length >= MAX_TOTAL && !on;
@@ -443,45 +500,70 @@ function HabitsScreen({ onDone }: { onDone: () => void }) {
                 flexDirection: 'row',
                 alignItems: 'center',
                 gap: 14,
-                paddingVertical: 14,
-                borderBottomWidth: 1,
-                borderBottomColor: VQ.border,
+                paddingHorizontal: 16,
+                paddingVertical: 16,
+                backgroundColor: on ? 'rgba(158,214,223,0.10)' : 'transparent',
+                borderBottomWidth: index === STARTER_HABITS.length - 1 ? 0 : 1,
+                borderBottomColor: 'rgba(214,237,242,0.08)',
                 opacity: atMax ? 0.3 : 1,
               }}
             >
               <View style={{ flex: 1, gap: 2 }}>
-                <H3 style={{ color: on ? VQ.ink : VQ.inkSoft }}>{h.label}</H3>
-                <Small>{h.hint}</Small>
+                <H3 style={{ color: '#E8E0D4' }}>{h.label}</H3>
+                <Small style={{ color: on ? 'rgba(214,237,242,0.74)' : 'rgba(232,224,212,0.56)' }}>{h.hint}</Small>
               </View>
-              {on && locked && (
-                <Text style={{ fontSize: 13, color: VQ.inkDim }}>🔒</Text>
+              {on && (
+                <View
+                  style={{
+                    paddingHorizontal: 8,
+                    paddingVertical: 5,
+                    borderRadius: 999,
+                    borderWidth: 1,
+                    borderColor: locked ? 'rgba(232,224,212,0.20)' : 'rgba(158,214,223,0.28)',
+                    backgroundColor: locked ? 'rgba(232,224,212,0.08)' : 'rgba(158,214,223,0.14)',
+                  }}
+                >
+                  <Text
+                    style={{
+                      fontFamily: 'PixelifySans_600SemiBold',
+                      fontSize: 10,
+                      color: locked ? 'rgba(232,224,212,0.74)' : '#9ED6DF',
+                      textTransform: 'uppercase',
+                      letterSpacing: 1,
+                    }}
+                  >
+                    {locked ? 'locked' : 'active'}
+                  </Text>
+                </View>
               )}
               <View
                 style={{
-                  width: 20,
-                  height: 20,
-                  borderRadius: 3,
-                  backgroundColor: on && !locked ? VQ.ink : on && locked ? VQ.inkDim : 'transparent',
-                  borderWidth: 2,
-                  borderColor: on ? (locked ? VQ.inkDim : VQ.ink) : VQ.borderStrong,
+                  width: 24,
+                  height: 24,
+                  borderRadius: 8,
+                  backgroundColor: on ? '#9ED6DF' : 'rgba(0,0,0,0.10)',
+                  borderWidth: 1.5,
+                  borderColor: on ? '#9ED6DF' : 'rgba(214,237,242,0.20)',
                   alignItems: 'center',
                   justifyContent: 'center',
                 }}
               >
                 {on && (
-                  <Text style={{ color: VQ.seashell, fontSize: 11, fontWeight: 'bold' }}>✓</Text>
+                  <Text style={{ color: '#0B2547', fontSize: 12, fontWeight: 'bold' }}>✓</Text>
                 )}
               </View>
             </Pressable>
           );
-        })}
-        <View style={{ height: 28 }} />
-        <VQButton
-          label={loading ? 'Saving…' : selOrder.length === 0 ? 'Pick 5 habits' : `Begin quest · ${selOrder.length} island${selOrder.length === 1 ? '' : 's'}`}
-          onPress={handleBeginQuest}
-          disabled={selOrder.length === 0}
-        />
-      </ScrollView>
+            })}
+          </View>
+
+          <VQButton
+            label={loading ? 'Saving…' : selOrder.length === 0 ? 'Choose your islands' : `Begin quest · ${selOrder.length} island${selOrder.length === 1 ? '' : 's'}`}
+            onPress={handleBeginQuest}
+            disabled={selOrder.length === 0}
+          />
+        </ScrollView>
+      </SafeAreaView>
     </WorldBg>
   );
 }
