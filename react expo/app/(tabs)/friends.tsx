@@ -28,6 +28,7 @@ const MAP_ISLAND_IMG: Partial<Record<string, any>> = {
   meditation: require('../../assets/FINAL_HOTSPRING_MEDITATION-removebg-preview.png'),
   gym: require('../../assets/workout_island-removebg-preview.png'),
   running: require('../../assets/running_pixel-removebg-preview.png'),
+  reading: require('../../assets/pixel_art_large-removebg-preview.png'),
 };
 const HOME_ISLAND_IMG = require('../../assets/home_island.png');
 const WALK_GIF = require('../../assets/cute_chubby_fat_blue_panda_round_roly-poly_body_si_sleepy_east.gif');
