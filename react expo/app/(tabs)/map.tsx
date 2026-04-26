@@ -362,7 +362,7 @@ function IslandDetail({
           {/* Island art */}
           <View style={{ alignItems: "center", marginBottom: 6, marginTop: 8 }}>
             <View style={{ alignItems: "center" }}>
-              <View style={{ marginBottom: -58, zIndex: 1 }}>
+              <View style={{ marginBottom: -48, zIndex: 1 }}>
                 <Blob state={state} scale={5} />
               </View>
               {habitKey && HABIT_PNG[habitKey] ? (

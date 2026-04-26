@@ -6,7 +6,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useFocusEffect } from '@react-navigation/native';
 import Svg, { Path } from 'react-native-svg';
 import { supabase } from '../../lib/supabase';
-import { readScreenCache, writeScreenCache } from '../../lib/screenCache';
+import { readScreenCache, readStaleScreenCache, writeScreenCache } from '../../lib/screenCache';
 import { getAvatarState, getCompositeScore, getDaySince, getLevel, getOverallStreak } from '../../lib/scoreEngine';
 import Blob from '../../src/Blob';
 import { BackButton, Eyebrow, H1, H3, SectionDivider, Small, SpeechBubble, StatePill, UI, VQButton, WaterBg, WorldBg } from '../../src/Components';
@@ -338,7 +338,7 @@ function FriendIslandDetail({
         <ScrollView style={{ flex: 1 }} contentContainerStyle={{ padding: 16, gap: 10, paddingBottom: 60 }}>
           <View style={{ alignItems: 'center', marginBottom: 36 }}>
             <View style={{ alignItems: 'center' }}>
-              <View style={{ marginBottom: -58, zIndex: 2 }}>
+              <View style={{ marginBottom: -48, zIndex: 2 }}>
                 <Blob state={habit.state} scale={5} />
               </View>
               <MapIslandArt type={islandType} habitKey={habit.key} state={habit.state} scale={4} locked={habit.locked} />
@@ -938,20 +938,22 @@ export default function FriendsScreen() {
   const [loading, setLoading] = useState(true);
   const [visiting, setVisiting] = useState<VisitPayload | null>(null);
   const [visitLoading, setVisitLoading] = useState(false);
+  const hydratedFromCache = useRef(false);
 
   const pendingCount = pendingIncoming.length + unreadNudgeCount;
 
   // Load cached friends immediately on mount — avoids full spinner on every open
   useEffect(() => {
-    readScreenCache<FriendSummary[]>(FRIENDS_CACHE_KEY, FRIENDS_CACHE_TTL_MS).then((cached) => {
+    readStaleScreenCache<FriendSummary[]>(FRIENDS_CACHE_KEY).then((cached) => {
       if (!cached) return;
       setFriends(cached);
       setLoading(false);
+      hydratedFromCache.current = true;
     });
   }, []);
 
-  const loadFriendsData = useCallback(async () => {
-    setLoading(true);
+  const loadFriendsData = useCallback(async (silent = false) => {
+    if (!silent) setLoading(true);
     try {
       const {
         data: { session },
@@ -1041,13 +1043,14 @@ export default function FriendsScreen() {
 
       setFriends(friendSummaries);
       void writeScreenCache(FRIENDS_CACHE_KEY, friendSummaries);
+      hydratedFromCache.current = true;
       setPendingIncoming(incomingSummaries);
       setRecentNudges(recent);
       setUnreadNudgeCount(recentSenderIds.length);
     } catch (err) {
       console.warn('[friends] loadFriendsData error:', err);
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   }, []);
 
@@ -1079,7 +1082,7 @@ export default function FriendsScreen() {
   useFocusEffect(
     useCallback(() => {
       setTabAccentMode('blue');
-      void loadFriendsData();
+      void loadFriendsData(hydratedFromCache.current);
     }, [loadFriendsData])
   );
 
@@ -1195,7 +1198,7 @@ export default function FriendsScreen() {
 
   const openVisit = useCallback(async (friend: FriendSummary) => {
     setVisitLoading(true);
-    const cached = await readScreenCache<VisitPayload>(visitCacheKey(friend.id), FRIENDS_CACHE_TTL_MS);
+    const cached = await readStaleScreenCache<VisitPayload>(visitCacheKey(friend.id));
     if (cached) setVisiting(cached);
     else setVisiting({ friend, habits: [] });
     try {

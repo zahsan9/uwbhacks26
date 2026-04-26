@@ -24,22 +24,28 @@ export default function VerifyRoute() {
       }
       const userId = session.user.id;
 
-      // 2. Find the matching habit row for this user
-      let habitRowId: string | null = null;
-      if (result.habitId) {
-        const { data: habits, error: habitsErr } = await supabase
+      const [{ data: habits, error: habitsErr }, { data: userRow, error: userErr }] = await Promise.all([
+        supabase
           .from("habits")
           .select("id, habit_id_key")
-          .eq("user_id", userId);
+          .eq("user_id", userId),
+        supabase
+          .from("users")
+          .select("total_xp")
+          .eq("id", userId)
+          .single(),
+      ]);
 
-        if (habitsErr) {
-          console.warn("[verify] Could not fetch habits:", habitsErr.message);
-        } else if (habits) {
-          // Match backend habit key to the user's habit rows
-          const match = habits.find((h: { id: string; habit_id_key: string }) => h.habit_id_key === result.habitId);
-          if (match) habitRowId = match.id;
-        }
+      if (habitsErr) {
+        console.warn("[verify] Could not fetch habits:", habitsErr.message);
       }
+      if (userErr) {
+        console.warn("[verify] Could not fetch current XP:", userErr.message);
+      }
+
+      const habitRowId = result.habitId && habits
+        ? habits.find((h: { id: string; habit_id_key: string }) => h.habit_id_key === result.habitId)?.id ?? null
+        : null;
 
       // 3. Determine XP and verified_by
       const xpAwarded = result.isManual ? 25 : 50;
@@ -65,31 +71,18 @@ export default function VerifyRoute() {
         console.warn("[verify] No matching habit row found for habit_id_key:", result.habitId);
       }
 
-      // 5. Recompute total_xp from habit_logs so the stored XP stays in sync.
+      // 5. Increment total_xp directly instead of rereading all logs.
       if (didWriteLog) {
-        const { data: logs, error: logsErr } = await supabase
-          .from("habit_logs")
-          .select("xp_awarded")
-          .eq("user_id", userId);
+        const newXp = (userRow?.total_xp ?? 0) + xpAwarded;
+        const { error: xpErr } = await supabase
+          .from("users")
+          .update({ total_xp: newXp })
+          .eq("id", userId);
 
-        if (logsErr) {
-          console.warn("[verify] Could not fetch habit logs for XP sync:", logsErr.message);
+        if (xpErr) {
+          console.warn("[verify] total_xp update error:", xpErr.message);
         } else {
-          const newXp = (logs ?? []).reduce(
-            (sum: number, log: { xp_awarded: number | null }) => sum + (log.xp_awarded ?? 0),
-            0
-          );
-
-          const { error: xpErr } = await supabase
-            .from("users")
-            .update({ total_xp: newXp })
-            .eq("id", userId);
-
-          if (xpErr) {
-            console.warn("[verify] total_xp update error:", xpErr.message);
-          } else {
-            console.log("[verify] total_xp synced to", newXp);
-          }
+          console.log("[verify] total_xp synced to", newXp);
         }
       }
 

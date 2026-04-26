@@ -6,7 +6,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useFocusEffect } from '@react-navigation/native';
 import { supabase } from '../../lib/supabase';
-import { readScreenCache, writeScreenCache } from '../../lib/screenCache';
+import { readScreenCache, readStaleScreenCache, writeScreenCache } from '../../lib/screenCache';
 import {
   getAvatarState,
   getCompositeScore,
@@ -122,15 +122,16 @@ export default function ProfileScreen() {
 
   useEffect(() => {
     const hydrate = async () => {
-      const cached = await readScreenCache<ProfileData>(PROFILE_CACHE_KEY, PROFILE_CACHE_TTL_MS);
-      if (!cached) {
-        void loadProfile(false);
+      const cached = await readStaleScreenCache<ProfileData>(PROFILE_CACHE_KEY);
+      if (cached) {
+        setProfile(cached);
+        setLoading(false);
+        hydratedFromCache.current = true;
+        const fresh = await readScreenCache<ProfileData>(PROFILE_CACHE_KEY, PROFILE_CACHE_TTL_MS);
+        if (!fresh) void loadProfile(true);
         return;
       }
-      setProfile(cached);
-      setLoading(false);
-      hydratedFromCache.current = true;
-      void loadProfile(true);
+      void loadProfile(false);
     };
     void hydrate();
   }, [loadProfile]);
@@ -175,8 +176,8 @@ export default function ProfileScreen() {
                 )}
               </View>
               <View style={{ alignItems: 'center', gap: 4 }}>
-                <H2>{profile.username.split(' ')[0]}</H2>
-                <Small>Level {profile.level} · {profile.levelXpCurrent} / {profile.levelXpRequired} XP</Small>
+                <H2>{loading && !hydratedFromCache.current ? '...' : profile.username.split(' ')[0]}</H2>
+                <Small>{loading && !hydratedFromCache.current ? 'Loading profile...' : `Level ${profile.level} · ${profile.levelXpCurrent} / ${profile.levelXpRequired} XP`}</Small>
               </View>
               <View style={{ flexDirection: 'row', gap: 10, marginTop: 4, width: '100%' }}>
                 {[
@@ -200,8 +201,8 @@ export default function ProfileScreen() {
           <View style={{ marginTop: 18 }}>
             <Eyebrow style={{ marginBottom: 8 }}>Account</Eyebrow>
             <VQCard>
-              <SettingsRow label="Username" value={profile.username} />
-              <SettingsRow label="Email" value={profile.email || '—'} last />
+              <SettingsRow label="Username" value={loading && !hydratedFromCache.current ? 'Loading...' : profile.username} />
+              <SettingsRow label="Email" value={loading && !hydratedFromCache.current ? 'Loading...' : (profile.email || '—')} last />
             </VQCard>
           </View>
 

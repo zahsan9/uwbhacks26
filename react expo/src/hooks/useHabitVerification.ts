@@ -9,9 +9,9 @@ export interface IdentifyResult {
     timedOut: boolean;
 }
 
-const TIMEOUT_MS = 8000;
+const TIMEOUT_MS = 6500;
 const TARGET_SIZE = 224; // CLIP ViT-B/32 input resolution
-const JPEG_QUALITY = 0.7;
+const JPEG_QUALITY = 0.55;
 
 /** Maps backend habit IDs to display names */
 const HABIT_DISPLAY_NAME: Record<string, string> = {

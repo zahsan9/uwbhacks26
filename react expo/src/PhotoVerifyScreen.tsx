@@ -18,7 +18,7 @@ export interface VerifyResult {
 }
 
 interface PhotoVerifyScreenProps {
-    onComplete: (result: VerifyResult) => void;
+    onComplete: (result: VerifyResult) => void | Promise<void>;
     habitIds?: string[];
 }
 
@@ -35,6 +35,8 @@ export default function PhotoVerifyScreen({ onComplete, habitIds }: PhotoVerifyS
     const [stage, setStage] = useState<Stage>("camera");
     const [frozenUri, setFrozenUri] = useState<string | null>(null);
     const [confidence, setConfidence] = useState(0);
+    const [isCapturing, setIsCapturing] = useState(false);
+    const [isSubmitting, setIsSubmitting] = useState(false);
 
     // Animated values
     const pulseOpacity = useRef(new Animated.Value(0.5)).current;
@@ -84,33 +86,53 @@ export default function PhotoVerifyScreen({ onComplete, habitIds }: PhotoVerifyS
     }, [shakeX]);
 
     const handleCapture = useCallback(async () => {
-        if (!cameraRef.current) return;
-        const photo = await cameraRef.current.takePictureAsync({ quality: 1 });
-        if (!photo) return;
-        setFrozenUri(photo.uri);
-        setStage("checking");
-        startPulse();
-        const result = await identify(photo.uri);
-        setConfidence(result.confidence);
-        setDetectedHabit(result.habitName);
-        setDetectedHabitId(result.habitId);
-        if (result.verified === true) {
-            setStage("verified");
-            animateBadge();
-        } else if (result.verified === null || result.timedOut) {
-            setStage("ambiguous");
-        } else {
-            setStage("failed");
-            animateShake();
+        if (!cameraRef.current || isCapturing) return;
+        setIsCapturing(true);
+        try {
+            const photo = await cameraRef.current.takePictureAsync({ quality: 0.6, skipProcessing: true });
+            if (!photo) return;
+            setFrozenUri(photo.uri);
+            setStage("checking");
+            startPulse();
+            const result = await identify(photo.uri);
+            setConfidence(result.confidence);
+            setDetectedHabit(result.habitName);
+            setDetectedHabitId(result.habitId);
+            if (result.verified === true) {
+                setStage("verified");
+                animateBadge();
+            } else if (result.verified === null || result.timedOut) {
+                setStage("ambiguous");
+            } else {
+                setStage("failed");
+                animateShake();
+            }
+        } finally {
+            setIsCapturing(false);
         }
-    }, [identify, startPulse, animateBadge, animateShake]);
+    }, [animateBadge, animateShake, identify, isCapturing, startPulse]);
 
     const handleRetry = () => {
         badgeScale.setValue(0); badgeOpa.setValue(0); xpOpa.setValue(0);
         xpTY.setValue(16); blobBounce.setValue(0); shakeX.setValue(0);
         pulseOpacity.setValue(0.5); dotScale.setValue(1);
-        setFrozenUri(null); setConfidence(0); setStage("camera");
+        setDetectedHabit("");
+        setDetectedHabitId("");
+        setFrozenUri(null);
+        setConfidence(0);
+        setIsSubmitting(false);
+        setStage("camera");
     };
+
+    const submitResult = useCallback(async (result: VerifyResult) => {
+        if (isSubmitting) return;
+        setIsSubmitting(true);
+        try {
+            await Promise.resolve(onComplete(result));
+        } finally {
+            setIsSubmitting(false);
+        }
+    }, [isSubmitting, onComplete]);
 
     useEffect(() => {
         if (!permission?.granted) requestPermission();
@@ -162,7 +184,7 @@ export default function PhotoVerifyScreen({ onComplete, habitIds }: PhotoVerifyS
 
                 {/* Shutter */}
                 <View style={{ position: "absolute", bottom: 48, left: 0, right: 0, alignItems: "center" }}>
-                    <Pressable onPress={handleCapture} style={s.shutterOuter}>
+                    <Pressable onPress={handleCapture} disabled={isCapturing} style={[s.shutterOuter, isCapturing && { opacity: 0.6 }]}>
                         <View style={s.shutterInner} />
                     </Pressable>
                     <Text style={s.shutterLabel}>tap to capture</Text>
@@ -208,8 +230,8 @@ export default function PhotoVerifyScreen({ onComplete, habitIds }: PhotoVerifyS
                             +50 XP
                         </Animated.Text>
                         <View style={{ marginTop: 8, width: "100%", paddingHorizontal: 32 }}>
-                            <VQButton label="Continue" onPress={() => {
-                                onComplete({ verified: true, habitId: detectedHabitId, habitName: detectedHabit, confidence, isManual: false });
+                            <VQButton label={isSubmitting ? "Saving..." : "Continue"} disabled={isSubmitting} onPress={() => {
+                                void submitResult({ verified: true, habitId: detectedHabitId, habitName: detectedHabit, confidence, isManual: false });
                             }} />
                         </View>
                     </View>
@@ -224,13 +246,13 @@ export default function PhotoVerifyScreen({ onComplete, habitIds }: PhotoVerifyS
                         <Text style={s.overlayBody}>Couldn't fully confirm. Trust your effort.</Text>
                         <View style={{ flexDirection: "row", gap: 12, marginTop: 24, paddingHorizontal: 32 }}>
                             <View style={{ flex: 1 }}>
-                                <VQButton label="Yes, I did it" onPress={() => {
-                                    onComplete({ verified: true, habitId: detectedHabitId, habitName: detectedHabit, confidence, isManual: true });
+                                <VQButton label={isSubmitting ? "Saving..." : "Yes, I did it"} disabled={isSubmitting} onPress={() => {
+                                    void submitResult({ verified: true, habitId: detectedHabitId, habitName: detectedHabit, confidence, isManual: true });
                                 }} />
                             </View>
                             <View style={{ flex: 1 }}>
-                                <VQButton label="No" style="ghost" onPress={() => {
-                                    onComplete({ verified: false, habitId: detectedHabitId, habitName: detectedHabit, confidence, isManual: false });
+                                <VQButton label="No" style="ghost" disabled={isSubmitting} onPress={() => {
+                                    void submitResult({ verified: false, habitId: detectedHabitId, habitName: detectedHabit, confidence, isManual: false });
                                 }} />
                             </View>
                         </View>
@@ -248,8 +270,8 @@ export default function PhotoVerifyScreen({ onComplete, habitIds }: PhotoVerifyS
                         </View>
                         <View style={{ marginTop: 16, width: "100%", paddingHorizontal: 32, gap: 10 }}>
                             <VQButton label="Try again" onPress={handleRetry} />
-                            <VQButton label="Skip" style="ghost" onPress={() => {
-                                onComplete({ verified: false, habitId: "", habitName: "", confidence: 0, isManual: false });
+                            <VQButton label="Skip" style="ghost" disabled={isSubmitting} onPress={() => {
+                                void submitResult({ verified: false, habitId: "", habitName: "", confidence: 0, isManual: false });
                             }} />
                         </View>
                     </Animated.View>
