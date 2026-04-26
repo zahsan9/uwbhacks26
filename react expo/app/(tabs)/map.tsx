@@ -14,6 +14,12 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useFocusEffect } from "@react-navigation/native";
 import Svg, { Path } from "react-native-svg";
+import { supabase } from "../../lib/supabase";
+import {
+  getAvatarState,
+  getHabitScore,
+  getHabitStreak,
+} from "../../lib/scoreEngine";
 import Blob from "../../src/Blob";
 import { setTabAccentMode } from "../../src/tabAccent";
 
@@ -26,10 +32,9 @@ import {
   StatePill,
   VQCard,
   WaterBg,
-  WorldBg,
 } from "../../src/Components";
 import Island from "../../src/Island";
-import { ISLAND_STATES, islandMeta, islandName } from "../../src/models";
+import { islandName } from "../../src/models";
 import { AvatarState, IslandType, VQ } from "../../src/theme";
 
 const WALK_GIF = require("../../assets/cute_chubby_fat_blue_panda_round_roly-poly_body_si_sleepy_east.gif");
@@ -83,17 +88,175 @@ const HABIT_SLOT_KEYS = ["slot0", "slot1", "slot2", "slot3", "slot4"] as const;
 
 type HabitSlot = {
   habitId: string;
+  rowId?: string;
   key: string;
   label: string;
   locked: boolean;
+  state?: AvatarState;
+  detail?: HabitIslandDetail;
+};
+
+type DayCell = {
+  status: "hit" | "missed";
+  isToday: boolean;
+};
+
+type HabitIslandDetail = {
+  stat: string;
+  unit: string;
+  goal: string;
+  streak: number;
+  pattern: DayCell[];
+  todayLog: string;
+  todayXp: number;
+  score: number;
+  weekCount: number;
 };
 const DEFAULT_HABIT_SLOTS: HabitSlot[] = [
-  { habitId: "steps", key: "walk", label: "Walking", locked: false },
-  { habitId: "sleep", key: "sleep", label: "Sleep", locked: false },
-  { habitId: "screen", key: "screen", label: "Screen Time", locked: false },
-  { habitId: "gym", key: "gym", label: "Workout", locked: true },
-  { habitId: "meditate", key: "meditation", label: "Meditation", locked: true },
+  { habitId: "steps", key: "walk", label: "Walking", locked: false, state: "healthy" },
+  { habitId: "sleep", key: "sleep", label: "Sleep", locked: false, state: "healthy" },
+  { habitId: "screen", key: "screen", label: "Screen Time", locked: false, state: "healthy" },
+  { habitId: "gym", key: "gym", label: "Workout", locked: true, state: "sick" },
+  { habitId: "meditate", key: "meditation", label: "Meditation", locked: true, state: "sick" },
 ];
+
+const HABIT_LABELS: Record<string, string> = {
+  walk: "Walking",
+  sleep: "Sleep",
+  screen: "Screen Time",
+  gym: "Workout",
+  running: "Running",
+  reading: "Reading",
+  cooking: "Cooking",
+  meditation: "Meditation",
+};
+
+function buildHabitSlots(
+  rows: Array<{ id: string; habit_id_key: string; name: string; tier: number | null }>
+): HabitSlot[] {
+  const deduped = Array.from(
+    new Map(
+      rows
+        .filter((row) => Boolean(row.habit_id_key))
+        .map((row) => [row.habit_id_key, row])
+    ).values()
+  ).slice(0, HABIT_SLOT_KEYS.length);
+
+  return deduped.map((row) => ({
+    habitId: row.habit_id_key,
+    rowId: row.id,
+    key: row.habit_id_key,
+    label: row.name || HABIT_LABELS[row.habit_id_key] || row.habit_id_key,
+    locked: (row.tier ?? 1) >= 2,
+    state: (row.tier ?? 1) >= 2 ? "sick" : "healthy",
+  }));
+}
+
+function localDayKey(input: string | Date): string {
+  const date = typeof input === "string" ? new Date(input) : input;
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function dayKeysEndingToday(numDays: number): string[] {
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  return Array.from({ length: numDays }, (_, index) => {
+    const day = new Date(today);
+    day.setDate(today.getDate() - index);
+    return localDayKey(day);
+  });
+}
+
+function buildPattern(logDayKeys: Set<string>): DayCell[] {
+  const last30 = dayKeysEndingToday(30).reverse();
+  const todayKey = localDayKey(new Date());
+  return last30.map((dayKey) => ({
+    status: logDayKeys.has(dayKey) ? "hit" : "missed",
+    isToday: dayKey === todayKey,
+  }));
+}
+
+function daysAgoFromKey(dayKey: string): number {
+  const target = new Date(`${dayKey}T00:00:00`);
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  return Math.max(
+    0,
+    Math.round((today.getTime() - target.getTime()) / (1000 * 60 * 60 * 24))
+  );
+}
+
+function buildMainStat(habitKey: string, weekCount: number): Pick<HabitIslandDetail, "stat" | "unit" | "goal"> {
+  if (habitKey === "walk") {
+    return { stat: `${weekCount}/7`, unit: "walk days this week", goal: "7 days" };
+  }
+  if (habitKey === "sleep") {
+    return { stat: `${weekCount}/7`, unit: "sleep days this week", goal: "7 days" };
+  }
+  if (habitKey === "screen") {
+    return { stat: `${weekCount}/7`, unit: "screen wins this week", goal: "7 days" };
+  }
+  return { stat: String(weekCount), unit: "logs this week", goal: "7 / week" };
+}
+
+async function buildHabitDetail(slot: HabitSlot): Promise<HabitIslandDetail | undefined> {
+  if (!slot.rowId || slot.locked) return undefined;
+
+  const thirtyDaysAgo = new Date();
+  thirtyDaysAgo.setHours(0, 0, 0, 0);
+  thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 29);
+
+  const { data: logs, error } = await supabase
+    .from("habit_logs")
+    .select("completed_at, verified_by, xp_awarded")
+    .eq("habit_id", slot.rowId)
+    .gte("completed_at", thirtyDaysAgo.toISOString())
+    .order("completed_at", { ascending: false });
+
+  if (error) {
+    console.warn("[map] failed to fetch habit logs:", error.message);
+    return undefined;
+  }
+
+  const recentLogs = logs ?? [];
+  const logDayKeys = new Set(
+    recentLogs.map((log: { completed_at: string }) => localDayKey(log.completed_at))
+  );
+  const last7Keys = new Set(dayKeysEndingToday(7));
+  const weekCount = Array.from(logDayKeys).filter((dayKey) => last7Keys.has(dayKey)).length;
+  const todayKey = localDayKey(new Date());
+  const todayLogs = recentLogs.filter(
+    (log: { completed_at: string }) => localDayKey(log.completed_at) === todayKey
+  );
+  const todayXp = todayLogs.reduce(
+    (sum: number, log: { xp_awarded: number | null }) => sum + (log.xp_awarded ?? 0),
+    0
+  );
+  const latestLog = recentLogs[0];
+  const todayLog = todayLogs.length > 0
+    ? `Completed today via ${todayLogs[0].verified_by}.`
+    : latestLog
+      ? `Last completed ${daysAgoFromKey(localDayKey(latestLog.completed_at))} day${daysAgoFromKey(localDayKey(latestLog.completed_at)) === 1 ? "" : "s"} ago.`
+      : "No check-ins yet for this island.";
+
+  const [score, streak] = await Promise.all([
+    getHabitScore(slot.rowId),
+    getHabitStreak(slot.rowId),
+  ]);
+
+  return {
+    ...buildMainStat(slot.key, weekCount),
+    streak,
+    pattern: buildPattern(logDayKeys),
+    todayLog,
+    todayXp,
+    score,
+    weekCount,
+  };
+}
 
 const habitKeyToIslandType = (key: string): IslandType => {
   if (key === "walk" || key === "sleep" || key === "screen")
@@ -155,43 +318,21 @@ function IslandDetail({
   type,
   state,
   habitKey,
+  title,
+  detail,
   onBack,
 }: {
   type: IslandType;
   state: AvatarState;
   habitKey?: string;
+  title?: string;
+  detail?: HabitIslandDetail;
   onBack: () => void;
 }) {
-  const meta = islandMeta[type];
-  const name = islandName[type];
-  const today = 25;
-
-  const pattern = Array.from({ length: 30 }, (_, i) => {
-    if (i > today) return "future";
-    if (i === today) return "today";
-    if (type === "walk") return i % 7 === 3 && i < 15 ? "missed" : "hit";
-    if (type === "sleep") return i < 18 && i % 5 === 2 ? "partial" : "hit";
-    return i < 20 && i % 3 !== 0 ? "missed" : "hit";
-  });
-
-  const dayColor = (p: string) =>
-    ({
-      hit: "#78c8d8",
-      partial: "#f5a842",
-      missed: "#d06868",
-      today: "#f07848",
-      future: "rgba(28,80,100,0.25)",
-    })[p] ?? "transparent";
+  const name = title || islandName[type];
   const detailScaleBoost = habitKey
     ? (HABIT_SIZE_MULTIPLIER[habitKey] ?? 1)
     : 1;
-
-  const todayLog: Record<AvatarState, string> = {
-    thriving: "✓ pulled from HealthKit · 82% of goal",
-    healthy: "pulled from HealthKit · 68% of goal",
-    sick: "missed yesterday — a short walk recovers you",
-    critical: "3 days missed — your island is wilting",
-  };
 
   return (
     <WaterBg>
@@ -224,10 +365,10 @@ function IslandDetail({
           {/* Main stat */}
           <View style={{ backgroundColor: "rgba(0,30,45,0.65)", borderRadius: 16, borderWidth: 1, borderColor: "rgba(255,255,255,0.12)", padding: 20, alignItems: "center", gap: 6 }}>
             <Text style={{ fontFamily: "PixelifySans_700Bold", fontSize: 38, color: "#E8E0D4", lineHeight: 42 }}>
-              {meta.stat}
+              {detail?.stat ?? "—"}
             </Text>
             <Text style={{ fontFamily: "PixelifySans_400Regular", fontSize: 12, color: "rgba(232,224,212,0.6)" }}>
-              {meta.unit} · goal {meta.goal}
+              {detail ? `${detail.unit} · goal ${detail.goal}` : "Loading…"}
             </Text>
           </View>
 
@@ -236,22 +377,22 @@ function IslandDetail({
             <View style={{ flexDirection: "row", alignItems: "center" }}>
               <Text style={{ fontSize: 18, marginRight: 8 }}>🔥</Text>
               <Text style={{ fontFamily: "PixelifySans_700Bold", fontSize: 16, color: "#E8E0D4", flex: 1 }}>
-                {meta.streak} Day Streak
+                {detail?.streak ?? 0} Day Streak
               </Text>
               <Text style={{ fontFamily: "PixelifySans_400Regular", fontSize: 11, color: "rgba(232,224,212,0.5)" }}>
                 Last 30 Days
               </Text>
             </View>
             <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 4 }}>
-              {pattern.map((p, i) => (
+              {(detail?.pattern ?? []).map((cell, i) => (
                 <View
                   key={i}
                   style={{
                     width: SQUARE,
                     height: SQUARE,
-                    backgroundColor: dayColor(p),
+                    backgroundColor: cell.status === "hit" ? "#78c8d8" : "#d06868",
                     borderRadius: 6,
-                    borderWidth: p === "today" ? 2 : 0,
+                    borderWidth: cell.isToday ? 2 : 0,
                     borderColor: "#f07848",
                   }}
                 />
@@ -260,7 +401,6 @@ function IslandDetail({
             <View style={{ flexDirection: "row", gap: 16 }}>
               {[
                 ["Hit",     "#78c8d8"],
-                ["Partial", "#f5a842"],
                 ["Missed",  "#d06868"],
               ].map(([label, color]) => (
                 <View key={label} style={{ flexDirection: "row", alignItems: "center", gap: 5 }}>
@@ -274,15 +414,15 @@ function IslandDetail({
           {/* Today's log */}
           <View style={{ backgroundColor: "rgba(0,30,45,0.65)", borderRadius: 16, borderWidth: 1, borderColor: "rgba(255,255,255,0.12)", padding: 16, gap: 8 }}>
             <Text style={{ fontFamily: "PixelifySans_600SemiBold", fontSize: 9, color: "rgba(232,224,212,0.5)", textTransform: "uppercase", letterSpacing: 2 }}>TODAY'S LOG</Text>
-            <Text style={{ fontFamily: "PixelifySans_500Medium", fontSize: 14, color: "#E8E0D4", lineHeight: 20 }}>{todayLog[state]}</Text>
+            <Text style={{ fontFamily: "PixelifySans_500Medium", fontSize: 14, color: "#E8E0D4", lineHeight: 20 }}>{detail?.todayLog ?? "Loading…"}</Text>
           </View>
 
           {/* Bottom stat tiles */}
           <View style={{ flexDirection: "row", gap: 8 }}>
             {[
-              { icon: "⭐", val: "+24 xp", label: "Today" },
-              { icon: "🏆", val: "Lvl 4", label: "Next: 120 xp" },
-              { icon: "❤️", val: "78/100", label: "Health" },
+              { icon: "⭐", val: `+${detail?.todayXp ?? 0} xp`, label: "Today" },
+              { icon: "🏆", val: `${detail?.weekCount ?? 0}/7`, label: "This week" },
+              { icon: "❤️", val: `${detail?.score ?? 0}/100`, label: "Health" },
             ].map((item) => (
               <View key={item.label} style={{ flex: 1, backgroundColor: "rgba(0,30,45,0.65)", borderRadius: 16, borderWidth: 1, borderColor: "rgba(255,255,255,0.12)", padding: 14, alignItems: "center", gap: 6 }}>
                 <Text style={{ fontSize: 22 }}>{item.icon}</Text>
@@ -303,17 +443,80 @@ export default function MapScreen() {
   const [habitSlots, setHabitSlots] =
     useState<HabitSlot[]>(DEFAULT_HABIT_SLOTS);
 
+  const loadHabitSlots = useCallback(async () => {
+    try {
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+
+      if (session?.user) {
+        const { data: rows, error } = await supabase
+          .from("habits")
+          .select("id, habit_id_key, name, tier, created_at")
+          .eq("user_id", session.user.id)
+          .order("created_at", { ascending: true });
+
+        if (!error && rows && rows.length > 0) {
+          const baseSlots = buildHabitSlots(rows);
+          const nextSlots = await Promise.all(
+            baseSlots.map(async (slot) => {
+              if (slot.locked || !slot.rowId) {
+                return {
+                  ...slot,
+                  state: "sick" as AvatarState,
+                };
+              }
+
+              const detail = await buildHabitDetail(slot);
+
+              return {
+                ...slot,
+                state: getAvatarState(detail?.score ?? 0),
+                detail: detail ?? {
+                  ...buildMainStat(slot.key, 0),
+                  streak: 0,
+                  pattern: buildPattern(new Set<string>()),
+                  todayLog: "No check-ins yet for this island.",
+                  todayXp: 0,
+                  score: 0,
+                  weekCount: 0,
+                },
+              };
+            })
+          );
+          setHabitSlots(nextSlots);
+          await AsyncStorage.setItem(
+            "selectedHabitSlots",
+            JSON.stringify(nextSlots)
+          );
+          return;
+        }
+      }
+
+      const raw = await AsyncStorage.getItem("selectedHabitSlots");
+      if (raw) {
+        try {
+          const parsed = JSON.parse(raw) as HabitSlot[];
+          setHabitSlots(parsed.slice(0, HABIT_SLOT_KEYS.length));
+          return;
+        } catch (parseErr) {
+          console.warn("[map] invalid selectedHabitSlots cache:", parseErr);
+        }
+      }
+
+      setHabitSlots(DEFAULT_HABIT_SLOTS);
+    } catch (err) {
+      console.warn("[map] failed to load habit slots:", err);
+      setHabitSlots(DEFAULT_HABIT_SLOTS);
+    }
+  }, []);
+
   useFocusEffect(
     useCallback(() => {
       setTabAccentMode('blue');
-    }, [])
+      void loadHabitSlots();
+    }, [loadHabitSlots])
   );
-
-  useEffect(() => {
-    AsyncStorage.getItem("selectedHabitSlots").then((raw) => {
-      if (raw) setHabitSlots(JSON.parse(raw));
-    });
-  }, []);
 
   const pandaTX = useRef(new Animated.Value(0)).current;
   const pandaTY = useRef(new Animated.Value(0)).current;
@@ -564,9 +767,7 @@ export default function MapScreen() {
               const png = HABIT_PNG[slot.key];
               const sizeBoost = HABIT_SIZE_MULTIPLIER[slot.key] ?? 1;
               const islandType = habitKeyToIslandType(slot.key);
-              const state = slot.locked
-                ? "sick"
-                : (ISLAND_STATES[islandType] ?? "healthy");
+              const state = slot.state ?? (slot.locked ? "sick" : "healthy");
               const bobAnim = slotBobAnims[slotKey as keyof typeof slotBobAnims];
               return (
                 <Pressable
@@ -695,7 +896,7 @@ export default function MapScreen() {
           const islandType: IslandType = slot
             ? habitKeyToIslandType(slot.key)
             : "walk";
-          const islandState = ISLAND_STATES[islandType] ?? "healthy";
+          const islandState = slot?.state ?? "healthy";
           return (
             <Animated.View
               style={{
@@ -712,6 +913,8 @@ export default function MapScreen() {
                 type={islandType}
                 state={islandState}
                 habitKey={slot?.key}
+                title={slot?.label}
+                detail={slot?.detail}
                 onBack={closeIsland}
               />
             </Animated.View>

@@ -10,10 +10,10 @@ export default function VerifyRoute() {
   const habitIds = habitIdsParam ? habitIdsParam.split(",").filter(Boolean) : undefined;
 
   const handleComplete = useCallback(async (result: VerifyResult) => {
-    // Navigate away immediately so the user isn't stuck on the camera screen
-    router.replace("/(tabs)");
-
-    if (!result.verified) return;
+    if (!result.verified) {
+      router.replace("/(tabs)");
+      return;
+    }
 
     try {
       // 1. Get current user
@@ -46,6 +46,7 @@ export default function VerifyRoute() {
       const verifiedBy = result.isManual ? "manual" : "photo";
 
       // 4. Insert habit_logs row
+      let didWriteLog = false;
       if (habitRowId) {
         const { error: logErr } = await supabase.from("habit_logs").insert({
           habit_id: habitRowId,
@@ -57,35 +58,45 @@ export default function VerifyRoute() {
         if (logErr) {
           console.warn("[verify] habit_logs insert error:", logErr.message);
         } else {
+          didWriteLog = true;
           console.log("[verify] habit_log inserted — xp:", xpAwarded, "habit:", result.habitId);
         }
       } else {
         console.warn("[verify] No matching habit row found for habit_id_key:", result.habitId);
       }
 
-      // 5. Increment total_xp on the users row (read-then-write)
-      const { data: userRow, error: userErr } = await supabase
-        .from("users")
-        .select("total_xp")
-        .eq("id", userId)
-        .single();
+      // 5. Recompute total_xp from habit_logs so the stored XP stays in sync.
+      if (didWriteLog) {
+        const { data: logs, error: logsErr } = await supabase
+          .from("habit_logs")
+          .select("xp_awarded")
+          .eq("user_id", userId);
 
-      if (userErr) {
-        console.warn("[verify] Could not fetch users row:", userErr.message);
-      } else {
-        const newXp = (userRow?.total_xp ?? 0) + xpAwarded;
-        const { error: xpErr } = await supabase
-          .from("users")
-          .update({ total_xp: newXp })
-          .eq("id", userId);
-        if (xpErr) {
-          console.warn("[verify] total_xp update error:", xpErr.message);
+        if (logsErr) {
+          console.warn("[verify] Could not fetch habit logs for XP sync:", logsErr.message);
         } else {
-          console.log("[verify] total_xp updated to", newXp);
+          const newXp = (logs ?? []).reduce(
+            (sum: number, log: { xp_awarded: number | null }) => sum + (log.xp_awarded ?? 0),
+            0
+          );
+
+          const { error: xpErr } = await supabase
+            .from("users")
+            .update({ total_xp: newXp })
+            .eq("id", userId);
+
+          if (xpErr) {
+            console.warn("[verify] total_xp update error:", xpErr.message);
+          } else {
+            console.log("[verify] total_xp synced to", newXp);
+          }
         }
       }
+
+      router.replace("/(tabs)");
     } catch (err) {
       console.warn("[verify] Unexpected error in handleComplete:", err);
+      router.replace("/(tabs)");
     }
   }, [router]);
 

@@ -1,4 +1,5 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import { LinearGradient } from "expo-linear-gradient";
 import { Image } from "expo-image";
 import { useRouter } from "expo-router";
 import { useEffect, useRef, useState } from "react";
@@ -25,7 +26,6 @@ import {
   StatePill,
   VQCard,
   WaterBg,
-  WorldBg,
 } from "../src/Components";
 import Island from "../src/Island";
 import { ISLAND_STATES, islandMeta, islandName } from "../src/models";
@@ -121,6 +121,20 @@ const PANDA_SIZE = PANDA_SCALE * 20;
 const PANDA_LEFT = home.x - (PANDA_SIZE / 2 + 28);
 const PANDA_TOP = home.y - home.scale * 11 - (PANDA_SIZE - 62);
 
+function LegacyWorldBg({ children }: { children: React.ReactNode }) {
+  return (
+    <View style={{ flex: 1, backgroundColor: "#1a2e1c" }}>
+      <LinearGradient
+        colors={["#1a2e1c", "#243426", "#2a3a2d"]}
+        style={{ position: "absolute", top: 0, right: 0, bottom: 0, left: 0 }}
+        start={{ x: 0.2, y: 0 }}
+        end={{ x: 0.8, y: 1 }}
+      />
+      {children}
+    </View>
+  );
+}
+
 // ─── Island detail overlay ────────────────────────────────────────────────────
 function IslandDetail({
   type,
@@ -165,7 +179,7 @@ function IslandDetail({
   };
 
   return (
-    <WorldBg>
+    <LegacyWorldBg>
       <SafeAreaView style={{ flex: 1 }}>
         <View
           style={{
@@ -310,7 +324,7 @@ function IslandDetail({
           </View>
         </ScrollView>
       </SafeAreaView>
-    </WorldBg>
+    </LegacyWorldBg>
   );
 }
 

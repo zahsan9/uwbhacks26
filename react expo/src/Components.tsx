@@ -11,9 +11,9 @@ export const UI = {
     avatar: 55,
   },
   surface: {
-    base:      'rgba(10,26,14,0.86)',
-    raised:    'rgba(10,30,18,0.88)',
-    warm:      'rgba(18,40,22,0.90)',
+    base:      'rgba(6,24,61,0.86)',
+    raised:    'rgba(11,37,82,0.90)',
+    warm:      'rgba(18,54,106,0.92)',
     cream:     'rgba(232,224,212,0.10)',
     creamSoft: 'rgba(232,224,212,0.08)',
   },
@@ -38,9 +38,9 @@ export const UI = {
 // ─── WorldBg ────────────────────────────────────────────────────────
 export function WorldBg({ children }: { children: React.ReactNode }) {
   return (
-    <View style={{ flex: 1, backgroundColor: '#1a2e1c' }}>
+    <View style={{ flex: 1, backgroundColor: VQ.midnight }}>
       <LinearGradient
-        colors={['#1a2e1c', '#243426', '#2a3a2d']}
+        colors={[VQ.midnight, VQ.midnightSoft, VQ.midnightLift]}
         style={StyleSheet.absoluteFillObject}
         start={{ x: 0.2, y: 0 }}
         end={{ x: 0.8, y: 1 }}
@@ -55,7 +55,7 @@ export function WaterBg({ children }: { children: React.ReactNode }) {
   return (
     <View style={{ flex: 1 }}>
       <LinearGradient
-        colors={['#0d3d4d', '#1a5c70', '#2b7a8a', '#3d95a0', '#56b3bd']}
+        colors={['#081d44', '#10335d', '#1a4e79', '#276a92', '#3f8ead']}
         style={StyleSheet.absoluteFillObject}
         start={{ x: 0.2, y: 0 }}
         end={{ x: 0.8, y: 1 }}

@@ -62,7 +62,7 @@ export default function ProfileScreen() {
 
   useFocusEffect(
     useCallback(() => {
-      setTabAccentMode('green');
+      setTabAccentMode('blue');
     }, [])
   );
 
@@ -84,8 +84,14 @@ export default function ProfileScreen() {
 
       const { data: habits } = await supabase
         .from('habits')
-        .select('id')
+        .select('habit_id_key')
         .eq('user_id', userId);
+
+      const habitCount = new Set(
+        (habits ?? [])
+          .map((habit: { habit_id_key: string }) => habit.habit_id_key)
+          .filter(Boolean)
+      ).size;
 
       const [compositeScore, streak] = await Promise.all([
         getCompositeScore(userId),
@@ -100,7 +106,7 @@ export default function ProfileScreen() {
         compositeScore,
         streak,
         avatarState: getAvatarState(compositeScore),
-        habitCount: habits?.length ?? 0,
+        habitCount,
       });
     } catch (err) {
       console.warn('[profile] loadProfile error:', err);
@@ -115,6 +121,7 @@ export default function ProfileScreen() {
 
   const handleLogout = async () => {
     await AsyncStorage.removeItem('onboarded');
+    await AsyncStorage.removeItem('selectedHabitSlots');
     await supabase.auth.signOut();
   };
 
